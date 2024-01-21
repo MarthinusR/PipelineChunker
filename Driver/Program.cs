@@ -10,7 +10,9 @@ using Driver;
 
 static class Program {    
     static void Main(string[] args) {
-        var pipe = new Pipeline();
+        // NOTE: optimization gain is based on MaxChunkSize that is positively correlated with network latency
+        //       I.e. use larger values where the network response (ping) is slow (values between 256 and 1024)
+        var pipe = new Pipeline(512);
         var connectionStringBuilder = new SqlConnectionStringBuilder();
         connectionStringBuilder.ConnectionString = "Server=localhost\\SQLEXPRESS;Database=PipelineChunker;Trusted_Connection=True;Encrypt=False;";
         Utilities.Init(connectionStringBuilder);
@@ -23,18 +25,18 @@ static class Program {
             var watch = new Stopwatch();
             watch.Start();
             do {
-                for (int i = 0; i < 10; i++) {
+                for (int i = 0; i < 10000; i++) {
                     pipe.Channel<TestConduit1>(
                         Origin: (id) => {
-                            if (id == 4)
-                                throw new Exception("d58263c9527f4e20831b2f1860165064");
+                            //if (id == 4)
+                            //    throw new Exception("d58263c9527f4e20831b2f1860165064");
                             return Pipelined1(cmd, i+1, pipe);
                         },
                         Operation: (id, conduit) => {
-                            if(id == 1)
-                                throw new Exception("f7d4e71726eb4fadaa55b975d015dd57");
-                            Debug.WriteLine($"Final sum: {conduit.sum} sumAbs: {conduit.sumAbs} -- {id}");
-                            Console.WriteLine($"Final sum: {conduit.sum} sumAbs: {conduit.sumAbs} -- {id}");
+                            //if(id == 1)
+                            //    throw new Exception("f7d4e71726eb4fadaa55b975d015dd57");
+                            //Debug.WriteLine($"Final sum: {conduit.sum} sumAbs: {conduit.sumAbs} -- {id}");
+                            //Console.WriteLine($"Final sum: {conduit.sum} sumAbs: {conduit.sumAbs} -- {id}");
                         });
                 }
                 int sum = 0;
@@ -53,6 +55,7 @@ static class Program {
                 Debug.WriteLine($"Vertical: {state.VerticalSeconds}, Horizontal: {state.HorizontalSeconds}");
                 Console.WriteLine($"Vertical: {state.VerticalSeconds}, Horizontal: {state.HorizontalSeconds}");
                 Console.WriteLine($"Actual: {watch.ElapsedTicks / (double)Stopwatch.Frequency}");
+                Debug.WriteLine($"Actual: {watch.ElapsedTicks / (double)Stopwatch.Frequency}");
                 pipe.GetChannelState<TestConduit1>(ref TestConduit1Open, ref TestConduit1Channeling);
             } while (pipe.IsOpen);
         }
@@ -135,8 +138,8 @@ static class Program {
     }
 
     static IEnumerable<TestConduit1> Pipelined1(SqlCommand cmd, int i, Pipeline owner) {
-        if (i == 1)
-            throw new Exception("Init test");
+        //if (i == 1)
+        //    throw new Exception("Init test");
         var conduit = new TestConduit1();
         // first yield will initialize the conduit.
         yield return conduit;
@@ -152,10 +155,10 @@ static class Program {
             });
         phase1.cmd = cmd;
         yield return conduit;
-        if (i == 3)
-            throw new Exception("TEST after step");
+        //if (i == 3)
+        //    throw new Exception("TEST after step");
 
-        Debug.WriteLine($"Phase1-computed: {someValue}  -- {i}");
+        //Debug.WriteLine($"Phase1-computed: {someValue}  -- {i}");
         conduit.sum += someValue;
         conduit.sumAbs += Math.Abs(someValue);
 
@@ -172,7 +175,7 @@ static class Program {
             });
         yield return conduit;
 
-        Debug.WriteLine($"Phase2-computed: {someValue}  -- {i}");
+        //Debug.WriteLine($"Phase2-computed: {someValue}  -- {i}");
         conduit.sum += someValue;
         conduit.sumAbs += Math.Abs(someValue);
         yield return conduit;

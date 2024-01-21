@@ -9,6 +9,7 @@ using System.Text;
 namespace PipelineChunker {
     public partial class Pipeline : IPipeline {
         private Dictionary<Type, ChannelState> _conduitMap = new Dictionary<Type, ChannelState>();
-        ChannelState _errorState;  
+        ChannelState _errorState;
+        int _maxChunkSize;
     }
 }

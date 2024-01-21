@@ -7,5 +7,7 @@ namespace PipelineChunker {
         Pipeline.IChannelState Bind<ConduitT>();
         void GetChannelState<ConduitT>(ref bool IsOpen, ref bool IsChanneling);
         bool IsOpen { get; }
+
+        int MaxChunkSize { get; }
     }
 }

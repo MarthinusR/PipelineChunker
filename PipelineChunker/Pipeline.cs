@@ -8,7 +8,8 @@ using System.Text;
 
 namespace PipelineChunker {
     public partial class Pipeline : IPipeline {
-        public Pipeline() {
+        public Pipeline(int maxChunkSize = 1024) {
+            _maxChunkSize = maxChunkSize;
             Clear();
         }
         public bool IsOpen {
@@ -16,6 +17,8 @@ namespace PipelineChunker {
                 return !_conduitMap.Values.All(x => !x.IsOpen);
             }
         }
+
+        public int MaxChunkSize => _maxChunkSize;
 
         public Pipeline.IChannelState Bind<ConduitT>() {
             var conduitType = typeof(ConduitT);
@@ -79,11 +82,16 @@ namespace PipelineChunker {
 
             var conduitType = typeof(IConduitT);
             Stopwatch stopwatch = new Stopwatch();
+
             if (_conduitMap.TryGetValue(conduitType, out var state)) {
-                bool wasChanneling = state.IsChanneling;
-                if (!state.IsOpen) {
+                state.IsChanneling = true;
+                int chunkIndex = -1;
+                while (chunkIndex * MaxChunkSize < state.list.Count) {
+                    chunkIndex++;
+
                     stopwatch.Restart();
-                    for (int i = 0; i < state.list.Count; i++) {
+                    // Initialization
+                    for (int i = chunkIndex * MaxChunkSize; i < state.list.Count && i < (chunkIndex + 1) * MaxChunkSize; i++) {
                         var item = state.list[i];
                         try {
                             if (item.Exception != null)
@@ -93,14 +101,14 @@ namespace PipelineChunker {
                                 state.list[i] = item;
                             } else {
                                 item.Enumerator.Current.Initialize(i, this);
-                                if(item.Enumerator.Current.Id != i) {
+                                if (item.Enumerator.Current.Id != i) {
                                     item.Exception = new Exception($"Channel must initialize '{typeof(int).Name} {nameof(IConduit.Id)}' by assigning the id parameter when {conduitType.FullName}.{nameof(IConduit.Initialize)} is invoked");
                                 }
                                 if (item.Enumerator.Current.ChannelItem == null) {
                                     item.Exception = new Exception($"Channel must initialize '{nameof(Pipeline.IChannelState)} {nameof(IConduit.ChannelItem)}' by assigning the conduitOwner parameter when {conduitType.FullName}.{nameof(IConduit.Initialize)} is invoked");
                                 }
                             }
-                        }catch(Exception ex) {
+                        } catch (Exception ex) {
                             var value = item;
                             value.Exception = new Exception("Channel must receive a conduit that yields a non null value", ex);
                             state.list[i] = value;
@@ -109,53 +117,55 @@ namespace PipelineChunker {
                     stopwatch.Stop();
                     state.verticalTicks += stopwatch.ElapsedTicks;
                     state.IsChanneling = true;
-                }
-                while (state.IsChanneling) {
+                    do {
+                        stopwatch.Restart();
+                        // Iteration
+                        for (int i = chunkIndex * MaxChunkSize; i < state.list.Count && i < (chunkIndex + 1) * MaxChunkSize; i++) {
+                            var item = state.list[i];
+                            if (item.Exception != null)
+                                continue;
+                            try {
+                                var end = item.Enumerator.MoveNext();
+                                state.IsChanneling &= !end;
+                            } catch (Exception ex) {
+                                item.Exception = ex;
+                                state.list[i] = item;
+                            }
+                        }
+                        stopwatch.Stop();
+                        state.verticalTicks += stopwatch.ElapsedTicks;
+                        stopwatch.Restart();
+                        state.Execute();
+                        stopwatch.Stop();
+                        state.horizontalTicks += stopwatch.ElapsedTicks;
+                        state.IsChanneling = !state.IsChanneling;
+                    } while (state.IsChanneling);
+                    // all iterators completed, run the operations for all conduits, but only once.
                     stopwatch.Restart();
-                    for (int i = 0; i < state.list.Count; i++) {
+                    for (int i = chunkIndex * MaxChunkSize; i < state.list.Count && i < (chunkIndex + 1) * MaxChunkSize; i++) {
                         var item = state.list[i];
-                        if (item.Exception != null)
+                        if (item.Exception != null) {
+                            failedList.Add(new ErrorConduit(i, item.Exception));
                             continue;
+                        }
                         try {
-                            var end = item.Enumerator.MoveNext();
-                            state.IsChanneling &= !end;
-                        }catch(Exception ex) {
+                            item.Operation(item.Enumerator.Current);
+                            item = state.list[i];
+                            if (item.Exception == null && item.Enumerator != null && item.Enumerator.Current != null)
+                                passedList.Add((IConduitT)item.Enumerator.Current);
+                            else
+                                failedList.Add(new ErrorConduit(i, item.Exception ?? new Exception("Critical error [ba02c0dce4c040fbbfaae0478237896c]")));
+
+                        } catch (Exception ex) {
                             item.Exception = ex;
                             state.list[i] = item;
+                            failedList.Add(new ErrorConduit(i, item.Exception));
                         }
                     }
                     stopwatch.Stop();
                     state.verticalTicks += stopwatch.ElapsedTicks;
-                    stopwatch.Restart();
-                    state.Execute();
-                    stopwatch.Stop();
-                    state.horizontalTicks += stopwatch.ElapsedTicks;
-                    state.IsChanneling = !state.IsChanneling;
+                    
                 }
-                // all iterators completed, run the operations for all conduits, but only once.
-                stopwatch.Restart();
-                for (int i = 0; i < state.list.Count; i++) {
-                    var item = state.list[i];
-                    if (item.Exception != null) {
-                        failedList.Add(new ErrorConduit(i, item.Exception));
-                        continue;
-                    }
-                    try {
-                        item.Operation(item.Enumerator.Current);
-                        item = state.list[i];
-                        if (item.Exception == null && item.Enumerator != null && item.Enumerator.Current != null)
-                            passedList.Add((IConduitT)item.Enumerator.Current);
-                        else
-                            failedList.Add(new ErrorConduit(i, item.Exception ?? new Exception("Critical error [ba02c0dce4c040fbbfaae0478237896c]")));
-                            
-                    } catch (Exception ex) {
-                        item.Exception = ex;
-                        state.list[i] = item;
-                        failedList.Add(new ErrorConduit(i, item.Exception));
-                    }
-                }
-                stopwatch.Stop();
-                state.verticalTicks += stopwatch.ElapsedTicks;
             }
             outState = state;
         }
