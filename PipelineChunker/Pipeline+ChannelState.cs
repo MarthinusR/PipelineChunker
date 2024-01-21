@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Diagnostics;
 using System.Linq;
 using System.Text;
 
@@ -13,12 +14,19 @@ namespace PipelineChunker {
 
             public List<IPhase> phaseList = null;
 
+            public long verticalTicks = 0;
+            public long horizontalTicks = 0;
+
             //TODO: should this not just be a list?
             public Dictionary<Type, List<IPhase>> phaseMap = new Dictionary<Type, List<IPhase>>();
 
             public IEnumerable<KeyValuePair<String, DataTable>> parameterTables;
 
-            public string GetParameterSigniture() {
+            double IChannelState.VerticalSeconds => verticalTicks / (double)Stopwatch.Frequency;
+
+            double IChannelState.HorizontalSeconds => horizontalTicks / (double)Stopwatch.Frequency;
+
+            public string GetParameterSignature() {
                 StringBuilder sbForProcParametersHash = new StringBuilder();
                 foreach (var pair in parameterTables.OrderBy(x => x.Key)) {
                     sbForProcParametersHash.Append(pair.Key);

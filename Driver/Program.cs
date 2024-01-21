@@ -21,7 +21,7 @@ static class Program {
             var TestConduit1Open = false;
             var TestConduit1Channeling = false;
             do {
-                for (int i = 0; i < 10; i++) {
+                for (int i = 0; i < 1000; i++) {
                     pipe.Channel<TestConduit1>(
                         Origin: () => {
                             return Pipelined1(cmd, i+1, pipe);
@@ -30,7 +30,8 @@ static class Program {
                             Debug.WriteLine($"Final sum: {conduit.sum} sumAbs: {conduit.sumAbs}");
                         });
                 }
-                pipe.Flush<TestConduit1>();
+                pipe.Flush<TestConduit1>(out var state);
+                Debug.WriteLine($"Vertical: {state.VerticalSeconds}, Horizontal: {state.HorizontalSeconds}");
                 pipe.GetChannelState<TestConduit1>(ref TestConduit1Open, ref TestConduit1Channeling);
             } while (pipe.IsOpen);
         }

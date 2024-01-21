@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Diagnostics;
 using System.Linq;
 using System.Text;
 
@@ -31,6 +32,8 @@ namespace PipelineChunker {
                 state.IsOpen = false;
                 var enumerator =
                 state.IsChanneling = false;
+                state.verticalTicks = 0;
+                state.horizontalTicks = 0;
             }
             state.list.Add(new ChannelItem() {
                 Operation = (IConduit c) => Operation((IConduitT)c),
@@ -42,37 +45,47 @@ namespace PipelineChunker {
             //throw new NotImplementedException();
         }
 
-        public IEnumerable<IEnumerator<IConduit>> Flush<IConduitT>() {
+        public IEnumerable<IEnumerator<IConduit>> Flush<IConduitT>(out IChannelState outState) {
+            outState = null;
             var conduitType = typeof(IConduitT);
+            Stopwatch stopwatch = new Stopwatch();
             if (_conduitMap.TryGetValue(conduitType, out var state)) {
                 bool wasChanneling = state.IsChanneling;
                 if (!state.IsOpen) {
+                    stopwatch.Restart();
                     foreach (var item in state.list) {
                         if (!item.Enumerator.MoveNext()) {
                             throw new Exception("Channel must receive a conduit that yields a non null value");
                         }
                         item.Enumerator.Current.Initialize(this);
                     }
+                    stopwatch.Stop();
+                    state.verticalTicks += stopwatch.ElapsedTicks;
                     state.IsChanneling = true;
                 }
                 while (state.IsChanneling) {
+                    stopwatch.Restart();
                     foreach (var item in state.list) {
                         var end = item.Enumerator.MoveNext();
                         state.IsChanneling &= !end;
                     }
+                    stopwatch.Stop();
+                    state.verticalTicks += stopwatch.ElapsedTicks;
+                    stopwatch.Restart();
                     state.Execute();
-                    int index = 0;
-                    foreach (var item in state.list) {
-                        //item.Operation(state.parameterTables.First().Value.Rows[index++])
-                    }
+                    stopwatch.Stop();
+                    state.horizontalTicks += stopwatch.ElapsedTicks;
                     state.IsChanneling = !state.IsChanneling;
                 }
                 // all iterators completed, run the operations for all conduits, but only once.
+                stopwatch.Restart();
                 foreach (var item in state.list) {
                     item.Operation(item.Enumerator.Current);
-
                 }
+                stopwatch.Stop();
+                state.verticalTicks += stopwatch.ElapsedTicks;
             }
+            outState = state;
             return state.list.Select(x => x.Enumerator);
         }
 
