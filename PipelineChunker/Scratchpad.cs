@@ -41,7 +41,7 @@ namespace PipelineChunker {
             public bool IsOpen;
             public List<ChannelItem> list;
 
-            public IPhase phase;
+            public List<IPhase> phaseList = null;
 
             //TODO: should this not just be a list?
             public Dictionary<Type, List<IPhase>> phaseMap = new Dictionary<Type, List<IPhase>>();
@@ -60,22 +60,23 @@ namespace PipelineChunker {
             }
 
             public void Execute() {
-                var set = phase.Execute(parameterTables);
+                var set = phaseList.First().Execute(parameterTables);
                 foreach(var phaseList in phaseMap.Values) {
                     for(int i = 0; i < phaseList.Count; i++) {
                         bool isError = false;
                         phaseList[i].Operation(set.Tables[i], isError);
                     }
                 }
-                phase = null;
+                phaseList = null;
                 parameterTables = null;
                 phaseMap.Clear();
             }
 
             public PhaseT Chunk<PhaseT>(IConduit conduit, Action<DataRow> rowLoader, Action<DataTable, bool> operation) where PhaseT : IPhase, new() {
-                phase = phase ?? new PhaseT();
+                IPhase phase;
+                phaseList = phaseList ?? new List<IPhase>();
+                phaseList.Add(phase = new PhaseT());
                 phase.Init(operation);
-                operation(new DataTable(), true);
                 parameterTables = parameterTables ?? phase.parameterTables;
                 if(!phaseMap.TryGetValue(phase.GetType(), out var list)) {
                     phaseMap[phase.GetType()] = list = new List<IPhase>();
