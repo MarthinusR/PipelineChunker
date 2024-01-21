@@ -9,6 +9,7 @@ namespace PipelineChunker {
         private struct ChannelItem {
             public Action<IConduit> Operation;
             public IEnumerator<IConduit> Enumerator;
+            public Exception Exception;
         }
     }
 }

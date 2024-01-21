@@ -20,18 +20,39 @@ static class Program {
             conn.Open();
             var TestConduit1Open = false;
             var TestConduit1Channeling = false;
+            var watch = new Stopwatch();
+            watch.Start();
             do {
-                for (int i = 0; i < 1000; i++) {
+                for (int i = 0; i < 10; i++) {
                     pipe.Channel<TestConduit1>(
-                        Origin: () => {
+                        Origin: (id) => {
+                            if (id == 4)
+                                throw new Exception("d58263c9527f4e20831b2f1860165064");
                             return Pipelined1(cmd, i+1, pipe);
                         },
-                        Operation: (conduit) => {
-                            Debug.WriteLine($"Final sum: {conduit.sum} sumAbs: {conduit.sumAbs}");
+                        Operation: (id, conduit) => {
+                            if(id == 1)
+                                throw new Exception("f7d4e71726eb4fadaa55b975d015dd57");
+                            Debug.WriteLine($"Final sum: {conduit.sum} sumAbs: {conduit.sumAbs} -- {id}");
+                            Console.WriteLine($"Final sum: {conduit.sum} sumAbs: {conduit.sumAbs} -- {id}");
                         });
                 }
-                pipe.Flush<TestConduit1>(out var state);
+                int sum = 0;
+                int sumAbs = 0;
+                pipe.Flush<TestConduit1>(out var state, out var passed, out var failed);
+                foreach (var conduit in passed) {
+                    sum += conduit.sum;
+                    sumAbs += conduit.sumAbs;
+                }
+                foreach (var conduit in failed) {
+                    Debug.WriteLine($"Failed[{conduit.Id}]: {conduit.Exception}");
+                }
+                watch.Stop();
+                Debug.WriteLine($"sum: {sum}, sumAbs: {sumAbs}");
+                Console.WriteLine($"sum: {sum}, sumAbs: {sumAbs}");
                 Debug.WriteLine($"Vertical: {state.VerticalSeconds}, Horizontal: {state.HorizontalSeconds}");
+                Console.WriteLine($"Vertical: {state.VerticalSeconds}, Horizontal: {state.HorizontalSeconds}");
+                Console.WriteLine($"Actual: {watch.ElapsedTicks / (double)Stopwatch.Frequency}");
                 pipe.GetChannelState<TestConduit1>(ref TestConduit1Open, ref TestConduit1Channeling);
             } while (pipe.IsOpen);
         }
@@ -41,18 +62,20 @@ static class Program {
         int _id;
         public int sum = 0;
         public int sumAbs = 0;
-        int IConduit.Id => _id;
+        public int Id => _id;
+
         Pipeline.IChannelState _channelItem;
-        public Pipeline.IChannelState channelItem => _channelItem;
+        public Pipeline.IChannelState ChannelItem => _channelItem;
+
         public IEnumerator<TestConduit1> GetEnumerator() {
             throw new NotImplementedException();
         }
         IEnumerator IEnumerable.GetEnumerator() {
             throw new NotImplementedException();
         }
-        void IConduit.Initialize(IPipeline conduitOwner) {
-            TestConduit1 self = this;
-            conduitOwner.Bind(ref self, ref _id, ref _channelItem);
+        void IConduit.Initialize(int id, IPipeline conduitOwner) {
+            _id = id;
+            _channelItem = conduitOwner.Bind<TestConduit1>();
         }
         public class Phase1 : Phase {
             public SqlCommand cmd;
@@ -97,25 +120,28 @@ static class Program {
         int _id;
         int IConduit.Id => _id;
         Pipeline.IChannelState _channelItem;
-        public Pipeline.IChannelState channelItem => _channelItem;
+        public Pipeline.IChannelState ChannelItem => _channelItem;
+
         public IEnumerator<TestConduit2> GetEnumerator() {
             throw new NotImplementedException();
         }
         IEnumerator IEnumerable.GetEnumerator() {
             throw new NotImplementedException();
         }
-        void IConduit.Initialize(IPipeline conduitOwner) {
-            TestConduit2 self = this;
-            conduitOwner.Bind(ref self, ref _id, ref _channelItem);
+        void IConduit.Initialize(int id, IPipeline conduitOwner) {
+            _id = id;
+            _channelItem = conduitOwner.Bind<TestConduit1>();
         }
     }
 
     static IEnumerable<TestConduit1> Pipelined1(SqlCommand cmd, int i, Pipeline owner) {
+        if (i == 1)
+            throw new Exception("Init test");
         var conduit = new TestConduit1();
         // first yield will initialize the conduit.
         yield return conduit;
         int someValue = 0;
-        var phase1 = conduit.channelItem.Chunk<TestConduit1.Phase1>(
+        var phase1 = conduit.ChannelItem.Chunk<TestConduit1.Phase1>(
             conduit,
             (DataRow row) => {
                 row["@a"] = i;
@@ -126,12 +152,14 @@ static class Program {
             });
         phase1.cmd = cmd;
         yield return conduit;
+        if (i == 3)
+            throw new Exception("TEST after step");
 
         Debug.WriteLine($"Phase1-computed: {someValue}  -- {i}");
         conduit.sum += someValue;
         conduit.sumAbs += Math.Abs(someValue);
 
-        conduit.channelItem.Chunk<TestConduit1.Phase2>(
+        conduit.ChannelItem.Chunk<TestConduit1.Phase2>(
             conduit,
             (DataRow row) => {
                 row["@a"] = -i;
@@ -139,6 +167,8 @@ static class Program {
             },
             (DataTable table, bool isError) => {
                 someValue = (int)table.Rows[0].ItemArray[0];
+                if (i % 200 == 0)
+                    Console.WriteLine($"Phase2-computed: {someValue}  -- {i}");
             });
         yield return conduit;
 

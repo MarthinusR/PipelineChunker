@@ -70,7 +70,5 @@ namespace PipelineChunker {
                 return (PhaseT)phase;
             }
         }
-        
-
     }
 }
