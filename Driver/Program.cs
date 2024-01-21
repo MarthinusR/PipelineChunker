@@ -168,13 +168,13 @@ static class Program {
             var TestConduit1Open = false;
             var TestConduit1Channeling = false;
             do {
-                for (int i = 0; i < 100; i++) {
+                for (int i = 0; i < 10; i++) {
                     pipe.Channel<TestConduit1>(
                         Origin: () => {
-                            return Pipelined1(cmd, i, pipe);
+                            return Pipelined1(cmd, i+1, pipe);
                         },
                         Operation: (conduit) => {
-                            Debug.WriteLine($"Final {conduit}");
+                            Debug.WriteLine($"Final sum: {conduit.sum} sumAbs: {conduit.sumAbs}");
                             // invoked when all enumerators terminate.
                         });
                 }
@@ -188,6 +188,7 @@ static class Program {
     internal class TestConduit1 : IConduit {
         int _id;
         public int sum = 0;
+        public int sumAbs = 0;
         int IConduit.Id => _id;
         Pipeline.IChannelState _channelItem;
         public Pipeline.IChannelState channelItem => _channelItem;
@@ -276,12 +277,13 @@ static class Program {
 
         Debug.WriteLine($"Phase1-computed: {someValue}  -- {i}");
         conduit.sum += someValue;
+        conduit.sumAbs += Math.Abs(someValue);
 
         conduit.channelItem.Chunk<TestConduit1.Phase2>(
             conduit,
             (DataRow row) => {
-                row["@a"] = 10 * i;
-                row["@b"] = 10 * i;
+                row["@a"] = -i;
+                row["@b"] = -i;
             },
             (DataTable table, bool isError) => {
                 someValue = (int)table.Rows[0].ItemArray[0];
@@ -290,18 +292,7 @@ static class Program {
 
         Debug.WriteLine($"Phase2-computed: {someValue}  -- {i}");
         conduit.sum += someValue;
-
-        conduit.channelItem.Chunk<TestConduit1.Phase1>(
-            conduit,
-            (DataRow row) => {
-                row["@a"] = -1;
-                row["@b"] = 1;
-            },
-            (DataTable table, bool isError) => {
-                someValue = (int)table.Rows[0].ItemArray[0];
-            });
-        Debug.WriteLine($"Phase3-computed: {someValue}  -- {i}");
-        conduit.sum += someValue;
+        conduit.sumAbs += Math.Abs(someValue);
         yield return conduit;
     }
     static IEnumerable<TestConduit2> Pipelined2(int i, Pipeline owner) {

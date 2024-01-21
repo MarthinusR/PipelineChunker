@@ -60,6 +60,8 @@ namespace PipelineChunker {
             }
 
             public void Execute() {
+                if (phaseList == null)
+                    return;
                 var set = phaseList.First().Execute(parameterTables);
                 foreach(var phaseList in phaseMap.Values) {
                     for(int i = 0; i < phaseList.Count; i++) {
@@ -114,7 +116,7 @@ namespace PipelineChunker {
             id = state.list.Count - 1;
         }
 
-        public void Channel<IConduitT>(Func<IEnumerable<IConduit>> Origin, Action<IConduit> Operation) {
+        public void Channel<IConduitT>(Func<IEnumerable<IConduit>> Origin, Action<IConduitT> Operation) {
             var conduitType = typeof(IConduitT);
             if (!_conduitMap.TryGetValue(conduitType, out var state)) {
                 _conduitMap[conduitType] = state = new ChannelState();
@@ -124,7 +126,7 @@ namespace PipelineChunker {
                 state.IsChanneling = false;
             }
             state.list.Add(new ChannelItem() {
-                Operation = Operation,
+                Operation = (IConduit c) => Operation((IConduitT)c),
                 Enumerator = Origin().GetEnumerator()
             });
         }
