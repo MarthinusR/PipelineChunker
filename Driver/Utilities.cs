@@ -146,6 +146,7 @@ namespace Driver {
                 cmd.Parameters.Clear();
                 cmd.ExecuteNonQuery();
                 preparedMap[storeProc] = process = (dataTable) => {
+                    Thread.Sleep(30);
                     cmd.CommandText = $"usp_Batched_c82473d65be546d8b965897a6ac039c0_{storeProc}";
                     cmd.CommandType = CommandType.StoredProcedure;
                     cmd.Parameters.Clear();

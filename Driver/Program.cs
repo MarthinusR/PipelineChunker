@@ -12,6 +12,7 @@ static class Program {
     static void Main(string[] args) {
         // NOTE: optimization gain is based on MaxChunkSize that is positively correlated with network latency
         //       I.e. use larger values where the network response (ping) is slow (values between 256 and 1024)
+        //       If the server is located on an internal network then use in the rage of 32 to 256
         var pipe = new Pipeline(512);
         var connectionStringBuilder = new SqlConnectionStringBuilder();
         connectionStringBuilder.ConnectionString = "Server=localhost\\SQLEXPRESS;Database=PipelineChunker;Trusted_Connection=True;Encrypt=False;";
