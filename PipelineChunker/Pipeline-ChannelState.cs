@@ -12,6 +12,9 @@ namespace PipelineChunker {
                 this.pipeline = pipeline;
                 list = new List<ChannelItem<T>>();
             }
+            public void Clear() {
+                list.Clear();
+            }
             public bool IsChanneling;
             public bool IsOpen;
             public List<ChannelItem<T>> list;

@@ -115,11 +115,16 @@ static class Program {
 
             public override DataSet Collect(Pipeline.IChannelState channelState, IEnumerable<KeyValuePair<string, DataTable>> parameterTables) {
                 channelState.Pipeline.Flush<TestConduit2>(out var state, out var passed, out var failed);
-                foreach(var item in passed) {
-                    Debug.WriteLine($"Phase2-Flush-passed: {item.testValue}");
+                var table = parameterTables.First().Value;
+                int i = -1;
+                foreach (var item in passed) {
+                    i++;
+                    table.Rows[i]["@a"] = item.testValue;
+                    table.Rows[i]["@b"] = item.testValue;
+                    Debug.WriteLine($"TestConduit1-Phase2-Flush-TestConduit2-passed: {item.testValue} -- id:{i}");
                 }
                 foreach (var item in failed) {
-                    Debug.WriteLine($"Phase2-Flush-failed: {item.Exception}");
+                    Debug.WriteLine($"TestConduit1-Phase2-Flush-TestConduit2-failed: {item.Exception} -- id:{i}");
                 }
                 return Utilities.ExecFlattenedStoreProcAsDataSetBatcher(cmd, "usp_Example", parameterTables.First().Value);
             }
@@ -142,6 +147,9 @@ static class Program {
         }
 
         IEnumerator<TestConduit2> IEnumerable<TestConduit2>.GetEnumerator() {
+            yield return this;// <-- Init
+            testValue *= 2;
+            Debug.WriteLine($"TestConduit2 {testValue} -- {_id}");
             yield return this;
         }
     }
@@ -162,7 +170,7 @@ static class Program {
             },
             (DataTable table, bool isError) => {
                 someValue = (int)table.Rows[0].ItemArray[0];
-                Debug.WriteLine($"TestConduit1-Phase1-Collect {someValue} -- {i}");
+                Debug.WriteLine($"TestConduit1-Phase1-Operation {someValue} -- {i}");
             });
         phase1.cmd = cmd;
         Debug.WriteLine($"TestConduit1-Phase1-PostChunk {someValue} -- {i}");
@@ -171,6 +179,7 @@ static class Program {
         conduit.ChannelItem.Pipeline.Channel<TestConduit2>(
             Initializer:(conduit) => {
                 conduit.testValue = someValue;
+                Debug.WriteLine($"TestConduit2-Initializer {someValue} -- {i}");
             });
 
         //if (i == 3)
@@ -188,8 +197,7 @@ static class Program {
             },
             (DataTable table, bool isError) => {
                 someValue = (int)table.Rows[0].ItemArray[0];
-                if (i % 200 == 0)
-                    Console.WriteLine($"Phase2-computed: {someValue}  -- {i}");
+                Debug.WriteLine($"TestConduit1-Phase1-Operation {someValue} -- {i}");
             });
         Debug.WriteLine($"TestConduit1-Phase2-PostChunk {someValue} -- {i}");
         yield return conduit;
@@ -201,12 +209,4 @@ static class Program {
         conduit.sumAbs += Math.Abs(someValue);
         yield return conduit;
     }
-    static IEnumerable<TestConduit2> Pipelined2(int i, Pipeline owner) {
-        var conduit = new TestConduit2();
-        // first yield will initialize the conduit.
-        yield return conduit;
-
-        yield return conduit;
-    }
-
 }

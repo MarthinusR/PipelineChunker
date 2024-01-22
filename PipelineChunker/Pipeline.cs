@@ -180,6 +180,7 @@ namespace PipelineChunker {
                     typedState.verticalTicks += stopwatch.ElapsedTicks;
                     
                 }
+                typedState.Clear();
             }
             outState = state;
         }
