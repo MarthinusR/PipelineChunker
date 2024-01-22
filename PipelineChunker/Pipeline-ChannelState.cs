@@ -7,15 +7,20 @@ using System.Text;
 
 namespace PipelineChunker {
     public partial class Pipeline {
-        private class ChannelState : IChannelState {
+        private class ChannelState<T> : IChannelState {
+            public ChannelState(Pipeline pipeline) {
+                this.pipeline = pipeline;
+                list = new List<ChannelItem<T>>();
+            }
             public bool IsChanneling;
             public bool IsOpen;
-            public List<ChannelItem> list;
+            public List<ChannelItem<T>> list;
 
             public List<IPhase> phaseList = null;
 
             public long verticalTicks = 0;
             public long horizontalTicks = 0;
+            private Pipeline pipeline;
 
             //TODO: should this not just be a list?
             public Dictionary<Type, List<IPhase>> phaseMap = new Dictionary<Type, List<IPhase>>();
@@ -25,6 +30,12 @@ namespace PipelineChunker {
             double IChannelState.VerticalSeconds => verticalTicks / (double)Stopwatch.Frequency;
 
             double IChannelState.HorizontalSeconds => horizontalTicks / (double)Stopwatch.Frequency;
+
+            public Pipeline Pipeline => pipeline;
+
+            bool IChannelState.IsChanneling => IsChanneling;
+
+            bool IChannelState.IsOpen => IsOpen;
 
             public string GetParameterSignature() {
                 StringBuilder sbForProcParametersHash = new StringBuilder();
@@ -40,7 +51,7 @@ namespace PipelineChunker {
             public void Execute() {
                 if (phaseList == null)
                     return;
-                var set = phaseList.First().Execute(parameterTables);
+                var set = phaseList.First().Collect(this, parameterTables);
                 foreach (var phaseList in phaseMap.Values) {
                     for (int i = 0; i < phaseList.Count; i++) {
                         bool isError = false;
@@ -52,12 +63,12 @@ namespace PipelineChunker {
                 phaseMap.Clear();
             }
 
-            public PhaseT Chunk<PhaseT>(IConduit conduit, Action<DataRow> rowLoader, Action<DataTable, bool> operation) where PhaseT : IPhase, new() {
+            public PhaseT Chunk<IConduitT, PhaseT>(IConduitT conduit, Action<DataRow> rowLoader, Action<DataTable, bool> operation) where PhaseT : IPhase, new() {
                 IPhase phase;
                 phaseList = phaseList ?? new List<IPhase>();
                 phaseList.Add(phase = new PhaseT());
                 phase.Init(operation);
-                parameterTables = parameterTables ?? phase.parameterTables;
+                parameterTables = parameterTables ?? phase.ParameterTables;
                 if (!phaseMap.TryGetValue(phase.GetType(), out var list)) {
                     phaseMap[phase.GetType()] = list = new List<IPhase>();
                 }

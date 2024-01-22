@@ -23,44 +23,57 @@ namespace PipelineChunker {
         public Pipeline.IChannelState Bind<ConduitT>() {
             var conduitType = typeof(ConduitT);
             if (!_conduitMap.TryGetValue(conduitType, out var state)) {
-                throw new Exception($"Bind<{typeof(ConduitT).FullName}>() must only be called from {typeof(IConduit).FullName}'s {nameof(IConduit.Initialize)} method");
+                throw new Exception($"Bind<{typeof(ConduitT).FullName}>() must only be called from {typeof(IConduit<ConduitT>).FullName}'s {nameof(IConduit<ConduitT>.Initialize)} method");
             }
-            return state;
+            return (ChannelState<ConduitT>)state;
         }
 
-        public void Channel<IConduitT>(Func<int, IEnumerable<IConduit>> Origin, Action<int, IConduitT> Operation) {
-            var conduitType = typeof(IConduitT);
+        public void Channel<ConduitT>(
+            Action<ConduitT> Initializer = null,
+            Func<int, IEnumerable<ConduitT>> Enumerator = null, Action<int, ConduitT> Operation = null
+        ) where ConduitT : IConduit<ConduitT>, new() {
+            var conduitType = typeof(ConduitT);
+            ChannelState<ConduitT> typedState = null;
             if (!_conduitMap.TryGetValue(conduitType, out var state)) {
-                state = InitChanelState<IConduitT>();
+                _conduitMap[conduitType] = state = typedState = new ChannelState<ConduitT>(this);
             }
-            int indexCaptured = state.list.Count;
-            ChannelItem item = new ChannelItem() {
-                Operation = (IConduit c) => {
+            typedState = (ChannelState<ConduitT>)state;
+            int indexCaptured = typedState.list.Count;
+            ChannelItem<ConduitT> item = new ChannelItem<ConduitT>() {
+                Operation = (IConduit<ConduitT> c) => {
                     try {
-                        Operation(indexCaptured, (IConduitT)c);
+                        Operation?.Invoke(indexCaptured, (ConduitT)c);
                     } catch (Exception ex) {
-                        var value = state.list[indexCaptured];
+                        var value = typedState.list[indexCaptured];
                         value.Exception = ex;
-                        state.list[indexCaptured] = value;
+                        typedState.list[indexCaptured] = value;
                     }
                 },
             };
-            IEnumerator<IConduit> enumerator1 = null;
+            IEnumerator<IConduit<ConduitT>> enumerator = null;
             Exception exception = null;
             try {
-                enumerator1 = Origin(indexCaptured).GetEnumerator();
+                ConduitT conduit;
+                if (Enumerator == null) {
+                    conduit = new ConduitT();
+                    Initializer?.Invoke(conduit);
+                    enumerator = (IEnumerator<IConduit<ConduitT>>)conduit.GetEnumerator();
+                } else {
+                    enumerator = (IEnumerator<IConduit<ConduitT>>)Enumerator(indexCaptured).GetEnumerator();
+                }
             }catch(Exception ex) {
                 exception = ex;
             }
-            item.Enumerator = enumerator1;
+            item.Enumerator = enumerator;
             item.Exception = exception;
-            state.list.Add(item);
+
+            typedState.list.Add(item);
         }
 
-        ChannelState InitChanelState<ConduitT>() {
-            ChannelState state;
-            _conduitMap[typeof(ConduitT)] = state = new ChannelState();
-            state.list = new List<ChannelItem>();
+        ChannelState<ConduitT> InitChanelState<ConduitT>() where ConduitT : IConduit<ConduitT>, new() {
+            ChannelState<ConduitT> state = new ChannelState<ConduitT>(this);
+            _conduitMap[typeof(ConduitT)] = state;
+            state.list = new List<ChannelItem<ConduitT>>();
             state.IsOpen = false;
             var enumerator =
             state.IsChanneling = false;
@@ -73,97 +86,98 @@ namespace PipelineChunker {
             //throw new NotImplementedException();
         }
 
-        public void Flush<IConduitT>(out IChannelState outState, out IEnumerable<IConduitT> passed, out IEnumerable<ErrorConduit> failed) {
+        public void Flush<ConduitT>(out IChannelState outState, out IEnumerable<ConduitT> passed, out IEnumerable<ErrorConduit> failed) {
             outState = null;
-            List<IConduitT> passedList = new List<IConduitT>();
+            List<ConduitT> passedList = new List<ConduitT>();
             passed = passedList;
             var failedList = new List<ErrorConduit>();
             failed = failedList;
 
-            var conduitType = typeof(IConduitT);
+            var conduitType = typeof(ConduitT);
             Stopwatch stopwatch = new Stopwatch();
 
             if (_conduitMap.TryGetValue(conduitType, out var state)) {
-                state.IsChanneling = true;
+                ChannelState<ConduitT> typedState = state as ChannelState<ConduitT>;
+                typedState.IsChanneling = true;
                 int chunkIndex = -1;
-                while (chunkIndex * MaxChunkSize < state.list.Count) {
+                while (chunkIndex * MaxChunkSize < typedState.list.Count) {
                     chunkIndex++;
 
                     stopwatch.Restart();
                     // Initialization
-                    for (int i = chunkIndex * MaxChunkSize; i < state.list.Count && i < (chunkIndex + 1) * MaxChunkSize; i++) {
-                        var item = state.list[i];
+                    for (int i = chunkIndex * MaxChunkSize; i < typedState.list.Count && i < (chunkIndex + 1) * MaxChunkSize; i++) {
+                        var item = typedState.list[i];
                         try {
                             if (item.Exception != null)
                                 continue;
-                            if (!item.Enumerator.MoveNext()) {
+                            if (!item.Enumerator.MoveNext() && item.Enumerator.Current == null) {
                                 item.Exception = new Exception("Channel must receive a conduit that yields a non null item");
-                                state.list[i] = item;
+                                typedState.list[i] = item;
                             } else {
                                 item.Enumerator.Current.Initialize(i, this);
                                 if (item.Enumerator.Current.Id != i) {
-                                    item.Exception = new Exception($"Channel must initialize '{typeof(int).Name} {nameof(IConduit.Id)}' by assigning the id parameter when {conduitType.FullName}.{nameof(IConduit.Initialize)} is invoked");
+                                    item.Exception = new Exception($"Channel must initialize '{typeof(int).Name} {nameof(IConduit<ConduitT>.Id)}' by assigning the id parameter when {conduitType.FullName}.{nameof(IConduit<ConduitT>.Initialize)} is invoked");
                                 }
                                 if (item.Enumerator.Current.ChannelItem == null) {
-                                    item.Exception = new Exception($"Channel must initialize '{nameof(Pipeline.IChannelState)} {nameof(IConduit.ChannelItem)}' by assigning the conduitOwner parameter when {conduitType.FullName}.{nameof(IConduit.Initialize)} is invoked");
+                                    item.Exception = new Exception($"Channel must initialize '{nameof(Pipeline.IChannelState)} {nameof(IConduit<ConduitT>.ChannelItem)}' by assigning the conduitOwner parameter when {conduitType.FullName}.{nameof(IConduit<ConduitT>.Initialize)} is invoked");
                                 }
                             }
                         } catch (Exception ex) {
                             var value = item;
                             value.Exception = new Exception("Channel must receive a conduit that yields a non null value", ex);
-                            state.list[i] = value;
+                            typedState.list[i] = value;
                         }
                     }
                     stopwatch.Stop();
-                    state.verticalTicks += stopwatch.ElapsedTicks;
-                    state.IsChanneling = true;
+                    typedState.verticalTicks += stopwatch.ElapsedTicks;
+                    typedState.IsChanneling = true;
                     do {
                         stopwatch.Restart();
                         // Iteration
-                        for (int i = chunkIndex * MaxChunkSize; i < state.list.Count && i < (chunkIndex + 1) * MaxChunkSize; i++) {
-                            var item = state.list[i];
+                        for (int i = chunkIndex * MaxChunkSize; i < typedState.list.Count && i < (chunkIndex + 1) * MaxChunkSize; i++) {
+                            var item = typedState.list[i];
                             if (item.Exception != null)
                                 continue;
                             try {
                                 var end = item.Enumerator.MoveNext();
-                                state.IsChanneling &= !end;
+                                typedState.IsChanneling &= !end;
                             } catch (Exception ex) {
                                 item.Exception = ex;
-                                state.list[i] = item;
+                                typedState.list[i] = item;
                             }
                         }
                         stopwatch.Stop();
-                        state.verticalTicks += stopwatch.ElapsedTicks;
+                        typedState.verticalTicks += stopwatch.ElapsedTicks;
                         stopwatch.Restart();
-                        state.Execute();
+                        typedState.Execute();
                         stopwatch.Stop();
-                        state.horizontalTicks += stopwatch.ElapsedTicks;
-                        state.IsChanneling = !state.IsChanneling;
+                        typedState.horizontalTicks += stopwatch.ElapsedTicks;
+                        typedState.IsChanneling = !typedState.IsChanneling;
                     } while (state.IsChanneling);
                     // all iterators completed, run the operations for all conduits, but only once.
                     stopwatch.Restart();
-                    for (int i = chunkIndex * MaxChunkSize; i < state.list.Count && i < (chunkIndex + 1) * MaxChunkSize; i++) {
-                        var item = state.list[i];
+                    for (int i = chunkIndex * MaxChunkSize; i < typedState.list.Count && i < (chunkIndex + 1) * MaxChunkSize; i++) {
+                        var item = typedState.list[i];
                         if (item.Exception != null) {
                             failedList.Add(new ErrorConduit(i, item.Exception));
                             continue;
                         }
                         try {
                             item.Operation(item.Enumerator.Current);
-                            item = state.list[i];
+                            item = typedState.list[i];
                             if (item.Exception == null && item.Enumerator != null && item.Enumerator.Current != null)
-                                passedList.Add((IConduitT)item.Enumerator.Current);
+                                passedList.Add((ConduitT)item.Enumerator.Current);
                             else
                                 failedList.Add(new ErrorConduit(i, item.Exception ?? new Exception("Critical error [ba02c0dce4c040fbbfaae0478237896c]")));
 
                         } catch (Exception ex) {
                             item.Exception = ex;
-                            state.list[i] = item;
+                            typedState.list[i] = item;
                             failedList.Add(new ErrorConduit(i, item.Exception));
                         }
                     }
                     stopwatch.Stop();
-                    state.verticalTicks += stopwatch.ElapsedTicks;
+                    typedState.verticalTicks += stopwatch.ElapsedTicks;
                     
                 }
             }

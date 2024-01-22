@@ -6,8 +6,8 @@ using System.Text;
 namespace PipelineChunker {
     public interface IPhase {
         void Init(Action<DataTable, bool> operation);
-        IEnumerable<KeyValuePair<String, DataTable>> parameterTables { get; }
-        DataSet Execute(IEnumerable<KeyValuePair<String, DataTable>> parameterTables);
+        IEnumerable<KeyValuePair<String, DataTable>> ParameterTables { get; }
+        DataSet Collect(Pipeline.IChannelState channelState, IEnumerable<KeyValuePair<String, DataTable>> parameterTables);
         Action<DataTable, bool> Operation { get; }
     }
 }

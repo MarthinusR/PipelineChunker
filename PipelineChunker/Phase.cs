@@ -5,10 +5,10 @@ using System.Text;
 
 namespace PipelineChunker {
     public abstract class Phase : IPhase {
-        public abstract IEnumerable<KeyValuePair<string, DataTable>> parameterTables { get; }
+        public abstract IEnumerable<KeyValuePair<string, DataTable>> ParameterTables { get; }
         public Action<DataTable, bool> Operation { get; private set; }
 
-        public abstract DataSet Execute(IEnumerable<KeyValuePair<string, DataTable>> parameterTables);
+        public abstract DataSet Collect(Pipeline.IChannelState channelState, IEnumerable<KeyValuePair<string, DataTable>> parameterTables);
         public void Init(Action<DataTable, bool> operation) {
             Operation = operation;
         }

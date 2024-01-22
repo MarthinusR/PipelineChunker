@@ -7,9 +7,12 @@ using System.Text;
 namespace PipelineChunker {
     public partial class Pipeline : IPipeline {
         public interface IChannelState {
-            PhaseT Chunk<PhaseT>(IConduit conduit, Action<DataRow> value, Action<DataTable, bool> value1) where PhaseT : IPhase, new();
+            PhaseT Chunk<IConduitT, PhaseT>(IConduitT conduit, Action<DataRow> value, Action<DataTable, bool> value1) where PhaseT : IPhase, new();
             double VerticalSeconds { get; }
             double HorizontalSeconds { get; }
+            Pipeline Pipeline { get; }
+            bool IsChanneling { get; }
+            bool IsOpen { get; }
         }
     }
 }
