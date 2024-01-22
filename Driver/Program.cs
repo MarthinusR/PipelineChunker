@@ -13,7 +13,7 @@ static class Program {
         // NOTE: optimization gain is based on MaxChunkSize that is positively correlated with network latency
         //       I.e. use larger values where the network response (ping) is slow (values between 256 and 1024)
         //       If the server is located on an internal network then use in the rage of 32 to 256
-        var pipe = new Pipeline(2);
+        var pipe = new Pipeline(7);
         var connectionStringBuilder = new SqlConnectionStringBuilder();
         connectionStringBuilder.ConnectionString = "Server=localhost\\SQLEXPRESS;Database=PipelineChunker;Trusted_Connection=True;Encrypt=False;";
         Utilities.Init(connectionStringBuilder);
@@ -42,17 +42,21 @@ static class Program {
                 }
                 int sum = 0;
                 int sumAbs = 0;
+                int check = 0;
+                int value = 0;
                 pipe.Flush<TestConduit1>(out var state, out var passed, out var failed);
                 foreach (var conduit in passed) {
+                    value++;
                     sum += conduit.sum;
                     sumAbs += conduit.sumAbs;
+                    check += (value * 2) + (value + value) * 2 - value;
                 }
                 foreach (var conduit in failed) {
                     Debug.WriteLine($"Failed[{conduit.Id}]: {conduit.Exception}");
                 }
                 watch.Stop();
-                Debug.WriteLine($"sum: {sum}, sumAbs: {sumAbs}");
-                Console.WriteLine($"sum: {sum}, sumAbs: {sumAbs}");
+                Debug.WriteLine($"sum: {sum}, sumAbs: {sumAbs} [{check == sum}]");
+                Console.WriteLine($"sum: {sum}, sumAbs: {sumAbs} [{check == sum}]");
                 Debug.WriteLine($"Vertical: {state.VerticalSeconds}, Horizontal: {state.HorizontalSeconds}");
                 Console.WriteLine($"Vertical: {state.VerticalSeconds}, Horizontal: {state.HorizontalSeconds}");
                 Console.WriteLine($"Actual: {watch.ElapsedTicks / (double)Stopwatch.Frequency}");
@@ -119,14 +123,15 @@ static class Program {
                 int i = -1;
                 foreach (var item in passed) {
                     i++;
-                    table.Rows[i]["@a"] = item.testValue;
-                    table.Rows[i]["@b"] = item.testValue;
-                    Debug.WriteLine($"TestConduit1-Phase2-Flush-TestConduit2-passed: {item.testValue} -- id:{i}");
+                    table.Rows[i]["@a"] = item.testValue;//<-- (i + i) [1]
+                    table.Rows[i]["@b"] = table.Rows[i]["@b"];//<-- -i [2]
+                    //.-- (i + i) * 2 - i [3]
+                    Debug.WriteLine($"TestConduit1-Phase2-Flush-TestConduit2-passed: @a:{table.Rows[i]["@a"]}, @b:{table.Rows[i]["@b"]} testValue:{item.testValue} -- id:{i}");
                 }
                 foreach (var item in failed) {
                     Debug.WriteLine($"TestConduit1-Phase2-Flush-TestConduit2-failed: {item.Exception} -- id:{i}");
                 }
-                return Utilities.ExecFlattenedStoreProcAsDataSetBatcher(cmd, "usp_Example", parameterTables.First().Value);
+                return Utilities.ExecFlattenedStoreProcAsDataSetBatcher(cmd, "usp_Example", parameterTables.First().Value); 
             }
         }
     }
@@ -149,7 +154,7 @@ static class Program {
         IEnumerator<TestConduit2> IEnumerable<TestConduit2>.GetEnumerator() {
             yield return this;// <-- Init
             testValue *= 2;
-            Debug.WriteLine($"TestConduit2 {testValue} -- {_id}");
+            Debug.WriteLine($"TestConduit2 {testValue} -- {_id + 1}");
             yield return this;
         }
     }
@@ -169,16 +174,18 @@ static class Program {
                 row["@b"] = i;
             },
             (DataTable table, bool isError) => {
-                someValue = (int)table.Rows[0].ItemArray[0];
+                someValue = (int)table.Rows[0].ItemArray[0]; //<-- i + i [1]
                 Debug.WriteLine($"TestConduit1-Phase1-Operation {someValue} -- {i}");
             });
         phase1.cmd = cmd;
         Debug.WriteLine($"TestConduit1-Phase1-PostChunk {someValue} -- {i}");
         yield return conduit;
         Debug.WriteLine($"TestConduit1-Phase2-PreChunk {someValue} -- {i}");
+
+
         conduit.ChannelItem.Pipeline.Channel<TestConduit2>(
             Initializer:(conduit) => {
-                conduit.testValue = someValue;
+                conduit.testValue = someValue;//<-- [1]
                 Debug.WriteLine($"TestConduit2-Initializer {someValue} -- {i}");
             });
 
@@ -192,16 +199,17 @@ static class Program {
         conduit.ChannelItem.Chunk<TestConduit1, TestConduit1.Phase2>(
             conduit,
             (DataRow row) => {
-                row["@a"] = -i;
-                row["@b"] = -i;
+                row["@a"] = -i;//<-- -i [2]
+                row["@b"] = -i;//<-- -i [2]
             },
             (DataTable table, bool isError) => {
                 someValue = (int)table.Rows[0].ItemArray[0];
+                //.-- (i + i) * 2 - i [3]
                 Debug.WriteLine($"TestConduit1-Phase1-Operation {someValue} -- {i}");
             });
         Debug.WriteLine($"TestConduit1-Phase2-PostChunk {someValue} -- {i}");
         yield return conduit;
-        Debug.WriteLine($"TestConduit1-End1 {someValue} -- {i}");
+        Debug.WriteLine($"TestConduit1-End: should be check ({i} + {i}) * 2 - {i} = {someValue} [{(i + i) * 2 - i == someValue}] -- {i}");
 
 
         //Debug.WriteLine($"Phase2-computed: {someValue}  -- {i}");
