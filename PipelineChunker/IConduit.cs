@@ -5,7 +5,7 @@ using System.Text;
 
 namespace PipelineChunker {
     public interface IConduit<T> : IEnumerable<T> {
-        void Initialize(int id, IPipeline conduitOwner);
+        void Initialize(int id, Pipeline.IChannelState ChannelItem);
         int Id { get; }
         Pipeline.IChannelState ChannelItem { get; }
     }

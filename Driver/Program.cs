@@ -8,7 +8,8 @@ using System.Data.Common;
 using System.Data.SqlTypes;
 using Driver;
 
-static class Program {    
+static class Program {
+    static bool testErrors = true;
     static void Main(string[] args) {
         // NOTE: optimization gain is based on MaxChunkSize that is positively correlated with network latency
         //       I.e. use larger values where the network response (ping) is slow (values between 256 and 1024)
@@ -26,7 +27,8 @@ static class Program {
             var watch = new Stopwatch();
             watch.Start();
             do {
-                for (int i = 0; i < 10; i++) {
+                int total = 5;
+                for (int i = 0; i < total; i++) {
                     pipe.Channel<TestConduit1>(
                         Enumerator: (id) => {
                             //if (id == 4)
@@ -43,10 +45,9 @@ static class Program {
                 int sum = 0;
                 int sumAbs = 0;
                 int check = 0;
-                int value = 0;
                 pipe.Flush<TestConduit1>(out var state, out var passed, out var failed);
                 foreach (var conduit in passed) {
-                    value++;
+                    int value = conduit.Id + 1;
                     sum += conduit.sum;
                     sumAbs += conduit.sumAbs;
                     check += (value * 2) + (value + value) * 2 - value;
@@ -81,9 +82,10 @@ static class Program {
         IEnumerator IEnumerable.GetEnumerator() {
             throw new NotImplementedException();
         }
-        void IConduit<TestConduit1>.Initialize(int id, IPipeline conduitOwner) {
+        void IConduit<TestConduit1>.Initialize(int id, Pipeline.IChannelState ChannelItem) {
             _id = id;
-            _channelItem = conduitOwner.Bind<TestConduit1>();
+            _channelItem = ChannelItem;
+            Debug.WriteLine($"New Conduit1 {id}");
         }
         public class Phase1 : Phase {
             public SqlCommand cmd;
@@ -100,7 +102,11 @@ static class Program {
                 }
             }
             override public DataSet Collect(Pipeline.IChannelState channelState, IEnumerable<KeyValuePair<String, DataTable>> parameterTables) {
-                return Utilities.ExecFlattenedStoreProcAsDataSetBatcher(cmd, "usp_Example", parameterTables.First().Value);
+                var set = Utilities.ExecFlattenedStoreProcAsDataSetBatcher(cmd, "usp_Example", parameterTables.First().Value);
+                foreach(DataTable table in set.Tables) {
+                    Debug.WriteLine($"@a:{table.Rows[0].ItemArray[0]}, @b: {table.Rows[0].ItemArray[0]}");
+                }
+                return set;
             }
         }
         public class Phase2 : Phase {
@@ -121,12 +127,13 @@ static class Program {
                 channelState.Pipeline.Flush<TestConduit2>(out var state, out var passed, out var failed);
                 var table = parameterTables.First().Value;
                 int i = -1;
-                foreach (var item in passed) {
+                foreach (var id in channelState.ValidIds) {
                     i++;
+                    var item = passed.ElementAt(id);
                     table.Rows[i]["@a"] = item.testValue;//<-- (i + i) [1]
                     table.Rows[i]["@b"] = table.Rows[i]["@b"];//<-- -i [2]
                     //.-- (i + i) * 2 - i [3]
-                    Debug.WriteLine($"TestConduit1-Phase2-Flush-TestConduit2-passed: @a:{table.Rows[i]["@a"]}, @b:{table.Rows[i]["@b"]} testValue:{item.testValue} -- id:{i}");
+                    Debug.WriteLine($"TestConduit1-Phase2-Flush-TestConduit2-passed: @a:{table.Rows[i]["@a"]}, @b:{table.Rows[i]["@b"]} testValue:{item.testValue} -- id:{id}");
                 }
                 foreach (var item in failed) {
                     Debug.WriteLine($"TestConduit1-Phase2-Flush-TestConduit2-failed: {item.Exception} -- id:{i}");
@@ -142,10 +149,10 @@ static class Program {
         public Pipeline.IChannelState ChannelItem => _channelItem;
 
         public int testValue;
-
-        void IConduit<TestConduit2>.Initialize(int id, IPipeline conduitOwner) {
+        void IConduit<TestConduit2>.Initialize(int id, Pipeline.IChannelState ChannelItem) {
             _id = id;
-            _channelItem = conduitOwner.Bind<TestConduit1>();
+            _channelItem = ChannelItem;
+            Debug.WriteLine($"New Conduit2 {id}");
         }
         public IEnumerator GetEnumerator() {
             return ((IEnumerable<TestConduit2>)this).GetEnumerator();
@@ -160,8 +167,8 @@ static class Program {
     }
 
     static IEnumerable<TestConduit1> Pipelined1(SqlCommand cmd, int i) {
-        //if (i == 1)
-        //    throw new Exception("Init test");
+        if (testErrors && i == 1)
+            throw new Exception("Init test");
         var conduit = new TestConduit1();
         // first yield will initialize the conduit.
         yield return conduit;
@@ -175,7 +182,7 @@ static class Program {
             },
             (DataTable table, bool isError) => {
                 someValue = (int)table.Rows[0].ItemArray[0]; //<-- i + i [1]
-                Debug.WriteLine($"TestConduit1-Phase1-Operation {someValue} -- {i}");
+                Debug.WriteLine($"TestConduit1-Phase1-Operation {someValue} -- {i}  ?{conduit.Id}?");
             });
         phase1.cmd = cmd;
         Debug.WriteLine($"TestConduit1-Phase1-PostChunk {someValue} -- {i}");
@@ -189,8 +196,8 @@ static class Program {
                 Debug.WriteLine($"TestConduit2-Initializer {someValue} -- {i}");
             });
 
-        //if (i == 3)
-        //    throw new Exception("TEST after step");
+        if (testErrors && conduit.Id == 2)
+            throw new Exception("TEST after step");
 
         //Debug.WriteLine($"Phase1-computed: {someValue}  -- {i}");
         conduit.sum += someValue;
@@ -205,11 +212,12 @@ static class Program {
             (DataTable table, bool isError) => {
                 someValue = (int)table.Rows[0].ItemArray[0];
                 //.-- (i + i) * 2 - i [3]
-                Debug.WriteLine($"TestConduit1-Phase1-Operation {someValue} -- {i}");
+                Debug.WriteLine($"TestConduit1-Phase1-Operation {someValue} -- {i} ??{conduit.Id}??");
             });
         Debug.WriteLine($"TestConduit1-Phase2-PostChunk {someValue} -- {i}");
         yield return conduit;
-        Debug.WriteLine($"TestConduit1-End: should be check ({i} + {i}) * 2 - {i} = {someValue} [{(i + i) * 2 - i == someValue}] -- {i}");
+        int check = (i + i) * 2 - i;
+        Debug.WriteLine($"TestConduit1-End: should be check ({i} + {i}) * 2 - {i} = {someValue} [{check == someValue}, {check}] -- {i}");
 
 
         //Debug.WriteLine($"Phase2-computed: {someValue}  -- {i}");
@@ -218,3 +226,54 @@ static class Program {
         yield return conduit;
     }
 }
+
+/*
+TestConduit1-Phase1-PreChunk 0 -- 1
+TestConduit1-Phase1-PostChunk 0 -- 1
+TestConduit1-Phase1-PreChunk 0 -- 2
+TestConduit1-Phase1-PostChunk 0 -- 2
+TestConduit1-Phase1-PreChunk 0 -- 3
+TestConduit1-Phase1-PostChunk 0 -- 3
+TestConduit1-Phase1-PreChunk 0 -- 4
+TestConduit1-Phase1-PostChunk 0 -- 4
+@a:2, @b: 2
+@a:4, @b: 4
+@a:6, @b: 6
+@a:8, @b: 8
+TestConduit1-Phase1-Operation 2 -- 1  ?0?
+TestConduit1-Phase1-Operation 4 -- 2  ?1?
+TestConduit1-Phase1-Operation 6 -- 3  ?2?
+TestConduit1-Phase1-Operation 8 -- 4  ?3?
+TestConduit1-Phase2-PreChunk 2 -- 1
+TestConduit2-Initializer 2 -- 1
+TestConduit1-Phase2-PostChunk 2 -- 1
+TestConduit1-Phase2-PreChunk 4 -- 2
+TestConduit2-Initializer 4 -- 2
+TestConduit1-Phase2-PostChunk 4 -- 2
+TestConduit1-Phase2-PreChunk 6 -- 3
+TestConduit2-Initializer 6 -- 3
+TestConduit1-Phase2-PostChunk 6 -- 3
+TestConduit1-Phase2-PreChunk 8 -- 4
+TestConduit2-Initializer 8 -- 4
+TestConduit1-Phase2-PostChunk 8 -- 4
+TestConduit2 4 -- 1
+TestConduit2 8 -- 2
+TestConduit2 12 -- 3
+TestConduit2 16 -- 4
+TestConduit1-Phase2-Flush-TestConduit2-passed: @a:4, @b:-1 testValue:4 -- id:0
+TestConduit1-Phase2-Flush-TestConduit2-passed: @a:8, @b:-2 testValue:8 -- id:1
+TestConduit1-Phase2-Flush-TestConduit2-passed: @a:12, @b:-3 testValue:12 -- id:2
+TestConduit1-Phase2-Flush-TestConduit2-passed: @a:16, @b:-4 testValue:16 -- id:3
+TestConduit1-Phase1-Operation 3 -- 1 ??0??
+TestConduit1-Phase1-Operation 6 -- 2 ??1??
+TestConduit1-Phase1-Operation 9 -- 3 ??2??
+TestConduit1-Phase1-Operation 12 -- 4 ??3??
+TestConduit1-End: should be check (1 + 1) * 2 - 1 = 3 [True, 3] -- 1
+TestConduit1-End: should be check (2 + 2) * 2 - 2 = 6 [True, 6] -- 2
+TestConduit1-End: should be check (3 + 3) * 2 - 3 = 9 [True, 9] -- 3
+TestConduit1-End: should be check (4 + 4) * 2 - 4 = 12 [True, 12] -- 4
+sum: 50, sumAbs: 50 [True]
+Vertical: 3.5348781, Horizontal: 8.2040753
+Actual: 11.7446719
+
+*/
