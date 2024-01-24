@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Data;
 using System.Text;
+using static Mark2.Pipeline;
 //  
 //  88888888ba                88           88  88                             
 //  88      "8b               88           88  ""                             
@@ -30,9 +31,19 @@ namespace Mark2 {
         public Pipeline(int maxChunkSize = 64) {
             _maxChunkSize = maxChunkSize;
         }
-
-        public void Chanel<ConduitT>(Action<ConduitT> Initializer, Action<ConduitT> Finalizer) {
-
+        public void Chanel<ConduitT>(Action<ConduitT> Initializer, Action<ConduitT> Finalizer) where ConduitT : IConduit<ConduitT>, new(){
+            Type conduitType = typeof(ConduitT);
+            ChannelAbstract channel;
+            if (_lastChannelConduitType == conduitType) {
+                channel = _lastChannel;
+            } else {
+                if (!_conduitTypeToChannelMap.TryGetValue(conduitType, out channel)) {
+                    _conduitTypeToChannelMap[conduitType] = channel = new ChannelClass<ConduitT>(this);
+                }
+            }
+            _lastChannelConduitType = conduitType;
+            _lastChannel = channel;
+            (channel as ChannelClass<ConduitT>).AddConduit(Initializer, Finalizer);
         }
         public void Flush() {
 

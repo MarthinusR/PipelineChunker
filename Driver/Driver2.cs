@@ -13,15 +13,20 @@ using Mark2;
 namespace Driver {
     internal class Driver2 {
         public static void TheMain(string[] args) {
-            Pipeline pipeline = new Pipeline();
+            Pipeline pipeline = new Pipeline(2);
+            int sum = 0;
+            for (int i = 0; i < 10; i++) {
+                pipeline.Chanel<MainConduit>(
+                        Initializer: (conduit) => conduit.Setup(3 + i, 5 + 2 * i),
+                        Finalizer: (conduit) => {
+                            sum += i;
+                            Debug.WriteLine($"{conduit.Id} A: {conduit.A} {conduit.B}");
+                        }
+                    );
+            }
 
-            pipeline.Chanel<MainConduit>(
-                    Initializer: (conduit) =>  conduit.Setup(3, 5),
-                    Finalizer: (conduit) => {
-                        Debug.WriteLine($"{conduit.Id} A: {conduit.A} {conduit.B}");
-                    }
-                );
-            pipeline.Chanel<OtherConduit>(
+            for (int i = 0; i < 10; i++) {
+                pipeline.Chanel<OtherConduit>(
                     Initializer: (conduit) => {
 
                     },
@@ -29,6 +34,16 @@ namespace Driver {
 
                     }
                 );
+            }
+            for (int i = 0; i < 10; i++) {
+                pipeline.Chanel<MainConduit>(
+                        Initializer: (conduit) => conduit.Setup(3 - i, 5 + 2 * i),
+                        Finalizer: (conduit) => {
+                            sum += i;
+                            Debug.WriteLine($"{conduit.Id} A: {conduit.A} {conduit.B}");
+                        }
+                    );
+            }
             pipeline.Flush();
         }
 

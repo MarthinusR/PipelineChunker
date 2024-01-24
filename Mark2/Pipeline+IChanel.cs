@@ -8,6 +8,7 @@ namespace Mark2 {
     public partial class Pipeline {
         public interface IChanel {
             Pipeline Pipeline { get; }
+            string Name { get; }
         }
 
         public interface IChanel<ConduitT> : IChanel where ConduitT: IConduit<ConduitT> {
@@ -41,10 +42,11 @@ namespace Mark2 {
             /// <returns>Returns the associated conduit</returns>
             /// <returns></returns>
             ConduitT Chunk<StaticT, InT, OutT>(
-                Func<IChanel<ConduitT>, StaticT> ChunkInitializer,
-                Func<IChanel<ConduitT>, StaticT, InT> ConduitInitializer,
-                Func<IChanel<ConduitT>, StaticT, IEnumerable<KeyValuePair<ConduitT, InT>>, IEnumerable<KeyValuePair<ConduitT, OutT>>> ChunkTransform,
-                Action<IChanel<ConduitT>, StaticT, KeyValuePair<ConduitT, OutT>> ConduitOperation);
+                Func   <IChanel<ConduitT>, StaticT> ChunkInitializer,
+                Func   <IChanel<ConduitT>, StaticT, InT> ConduitInitializer,
+                Func   <IChanel<ConduitT>, StaticT, IEnumerable<KeyValuePair<ConduitT, InT>>, IEnumerable<KeyValuePair<ConduitT, OutT>>> ChunkTransform,
+                Action <IChanel<ConduitT>, StaticT, KeyValuePair<ConduitT, OutT>> ConduitOperation,
+                string Name = null);
         }
     }
 }

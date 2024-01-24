@@ -25,7 +25,9 @@ using System.Text;
 // 
 namespace Mark2 {
     public partial class Pipeline {
+        Type _lastChannelConduitType;
+        ChannelAbstract _lastChannel;
         private readonly int _maxChunkSize;
-        private readonly Dictionary<Type, ChannelState> _channelMap = new Dictionary<Type, ChannelState>();
+        private readonly Dictionary<Type, ChannelAbstract> _conduitTypeToChannelMap = new Dictionary<Type, ChannelAbstract>();
     }
 }
