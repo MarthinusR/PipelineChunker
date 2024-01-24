@@ -12,6 +12,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Mark2\Mark2.csproj" />
     <ProjectReference Include="..\PipelineChunker\PipelineChunker.csproj" />
   </ItemGroup>
 

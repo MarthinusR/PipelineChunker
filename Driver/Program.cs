@@ -11,10 +11,12 @@ using Driver;
 static class Program {
     static bool testErrors = true;
     static void Main(string[] args) {
+        Driver2.TheMain(args);
+        return;
         // NOTE: optimization gain is based on MaxChunkSize that is positively correlated with network latency
         //       I.e. use larger values where the network response (ping) is slow (values between 256 and 1024)
         //       If the server is located on an internal network then use in the rage of 32 to 256
-        var pipe = new Pipeline(7);
+        var pipe = new Pipeline(2);
         var connectionStringBuilder = new SqlConnectionStringBuilder();
         connectionStringBuilder.ConnectionString = "Server=localhost\\SQLEXPRESS;Database=PipelineChunker;Trusted_Connection=True;Encrypt=False;";
         Utilities.Init(connectionStringBuilder);
@@ -46,15 +48,16 @@ static class Program {
                 int sumAbs = 0;
                 int check = 0;
                 pipe.Flush<TestConduit1>(out var state, out var passed, out var failed);
-                foreach (var conduit in passed) {
+                foreach (var pair in passed) {
+                    var conduit = pair.Value;
                     int value = conduit.Id + 1;
                     sum += conduit.sum;
                     sumAbs += conduit.sumAbs;
                     check += (value * 2) + (value + value) * 2 - value;
                 }
-                foreach (var conduit in failed) {
-                    Debug.WriteLine($"Failed[{conduit.Id}]: {conduit.Exception}");
-                }
+                //foreach (var conduit in failed) {
+                //    Debug.WriteLine($"Failed[{conduit.Id}]: {conduit.Exception}");
+                //}
                 watch.Stop();
                 Debug.WriteLine($"sum: {sum}, sumAbs: {sumAbs} [{check == sum}]");
                 Console.WriteLine($"sum: {sum}, sumAbs: {sumAbs} [{check == sum}]");
@@ -127,16 +130,17 @@ static class Program {
                 channelState.Pipeline.Flush<TestConduit2>(out var state, out var passed, out var failed);
                 var table = parameterTables.First().Value;
                 int i = -1;
-                foreach (var id in channelState.ValidIds) {
+                foreach (var pair in passed) {
                     i++;
-                    var item = passed.ElementAt(id);
-                    table.Rows[i]["@a"] = item.testValue;//<-- (i + i) [1]
+                    int id = pair.Key;
+                    var item = passed[id];
+                    table.Rows[i]["@a"] = pair.Value.testValue;//<-- (i + i) [1]
                     table.Rows[i]["@b"] = table.Rows[i]["@b"];//<-- -i [2]
                     //.-- (i + i) * 2 - i [3]
-                    Debug.WriteLine($"TestConduit1-Phase2-Flush-TestConduit2-passed: @a:{table.Rows[i]["@a"]}, @b:{table.Rows[i]["@b"]} testValue:{item.testValue} -- id:{id}");
+                    Debug.WriteLine($"TestConduit1-Phase2-Flush-TestConduit2-passed: @a:{table.Rows[i]["@a"]}, @b:{table.Rows[i]["@b"]} testValue:{pair.Value.testValue} -- id:{id}");
                 }
                 foreach (var item in failed) {
-                    Debug.WriteLine($"TestConduit1-Phase2-Flush-TestConduit2-failed: {item.Exception} -- id:{i}");
+                    Debug.WriteLine($"TestConduit1-Phase2-Flush-TestConduit2-failed: {item.Key} -- id:{i}");
                 }
                 return Utilities.ExecFlattenedStoreProcAsDataSetBatcher(cmd, "usp_Example", parameterTables.First().Value); 
             }

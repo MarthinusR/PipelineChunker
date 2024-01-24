@@ -6,10 +6,17 @@ using System.Text;
 
 namespace PipelineChunker {
     public partial class Pipeline {
-        private class ChannelItem<T> {
+        private abstract class ChannelItem {
+            public ChannelItem(int id) {
+                this.Id = id;
+            }
+            public Exception Exception;
+            public int Id;
+        }
+        private class ChannelItem<T> : ChannelItem {
+            public ChannelItem(int id) : base(id){}
             public Action<IConduit<T>> Operation;
             public IEnumerator<IConduit<T>> Enumerator;
-            public Exception Exception;
         }
     }
 }

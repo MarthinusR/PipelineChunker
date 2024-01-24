@@ -16,20 +16,20 @@ namespace PipelineChunker {
             public abstract IEnumerable<int> ValidIds { get; }
 
             public abstract PhaseT Chunk<IConduitT, PhaseT>(IConduitT conduit, Action<DataRow> value, Action<DataTable, bool> value1) where PhaseT : IPhase, new();
+            public Dictionary<int, ChannelItem> itemValidMap;
+            public Dictionary<int, ChannelItem> itemErrorMap;
         }
         private class ChannelState<T> : ChannelState {
             public ChannelState(Pipeline pipeline) {
                 Debug.WriteLine($"Channel got pipline {pipeline._pipelineId}");
                 this.ownerPipeline = pipeline;
-                itemValidMap = new Dictionary<int, ChannelItem<T>>();
-                itemErrorMap = new Dictionary<int, ChannelItem<T>>();
+                itemValidMap = new Dictionary<int, ChannelItem>();
+                itemErrorMap = new Dictionary<int, ChannelItem>();
                 thisPipeline = new Pipeline(pipeline, pipeline.MaxChunkSize);
                 startIndex = pipeline == null ? 0 : pipeline.ValidIds.DefaultIfEmpty().Min();
             }
             public bool isChanneling;
             public bool isOpen;
-            public Dictionary<int, ChannelItem<T>> itemValidMap;
-            public Dictionary<int, ChannelItem<T>> itemErrorMap;
 
             public readonly int startIndex;
             public int CurrentIndex { get; private set; }
@@ -55,27 +55,58 @@ namespace PipelineChunker {
                 itemErrorMap.Clear();
             }
             public int GetNextAndStepValidId() {
+
                 if (ownerPipeline._parent != null) {
                     //all the paths of the parent should be initialized by now
                     //so select the next valid id (the min of all ids less than this id)
-                    return ownerPipeline._parent.ValidIds.Where(x => x > CurrentIndex).DefaultIfEmpty().Min();
+                    CurrentIndex = ownerPipeline._parent.ValidIds.Where(x => x >= CurrentIndex).DefaultIfEmpty().Min();
                 }
                 return CurrentIndex++;
             }
             public override IEnumerable<int> ValidIds { get {
                     var conduitType = typeof(T);
 
-                    return itemValidMap.Values.Where(x => {
+                    IEnumerable<int> ParentValidIds(Pipeline owner) {
+                        IEnumerable<int> parentValid = Enumerable.Empty<int>();
+                        if (owner == null)
+                            return Enumerable.Empty<int>();
+                        if (owner._parent != null) {
+                            if (owner._parent != null) {
+                                parentValid = ParentValidIds(owner._parent);
+                            }
+                        }
+                        return parentValid.Concat(owner._channelMap.SelectMany(x => x.Value.itemValidMap).Select(x => x.Value.Id)).Where(idWhere => {
+                            return !itemValidMap.TryGetValue(idWhere, out _);
+                        });
+                    };
+
+                    return itemValidMap.Keys.Where( searchId => {
                         if (ownerPipeline != null) {
-                            foreach(var otherPair in thisPipeline._conduitMap) {
-                                if (otherPair.Value == this)
-                                    continue;
-                                if (otherPair.Value.ValidIds.All(xx => itemValidMap.Values.Contains(x)))
+                            foreach (var id in ownerPipeline._channelMap.SelectMany(x => x.Value.itemValidMap).Select(x => x.Value.Id)) {
+                                if (!itemValidMap.TryGetValue(id, out _))
                                     return false;
                             }
                         }
-                        return x.Enumerator != null && x.Enumerator.Current != null && x.Exception == null;
-                    }).Select(x => x.Enumerator.Current.Id);
+                        return true;
+                    });
+
+                    return itemValidMap.Values.Where(x => {
+                        if (ownerPipeline != null) {
+                            foreach(var otherPair in ownerPipeline._channelMap) {
+                                if (otherPair.Value == this)
+                                    continue;
+                                if (otherPair.Value.itemValidMap.TryGetValue(x.Id, out _))
+                                    return false;
+                            }
+                            foreach (var otherPair in thisPipeline._channelMap) {
+                                if (otherPair.Value == this)
+                                    continue;
+                                if (otherPair.Value.itemValidMap.TryGetValue(x.Id, out _))
+                                    return false;
+                            }
+                        }
+                        return (x as ChannelItem<T>).Enumerator != null && (x as ChannelItem<T>).Enumerator.Current != null && x.Exception == null;
+                    }).Select(x => (x as ChannelItem<T>).Enumerator.Current.Id);
                 } 
             }// => list.Where(x => x.Enumerator != null && x.Enumerator.Current != null && x.Exception == null).Select(x => x.Enumerator.Current.Id);
 
