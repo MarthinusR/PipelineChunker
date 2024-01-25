@@ -52,6 +52,7 @@ namespace Driver {
             public int B { get; private set; }
             public void Setup(int a, int b) { A = a; B = b; }
             public IEnumerator<MainConduit> GetEnumerator() {
+                yield return this;
                 yield return Channel.Chunk<DataTable, DataRow, DataRow>(
                     ChunkInitializer: static (channel) => new DataTable(),
                     ConduitInitializer: (channel, dt) => {
@@ -68,31 +69,37 @@ namespace Driver {
                 );
 
 
-                Channel.Pipeline.Flush(); // <--- What does this mean? <-- Should throw error correct?
+                //Channel.Pipeline.Flush(); // <--- What does this mean? <-- Should throw error correct?
 
+                for (int i = 0; i < 3 - Id; i++) {
+                    yield return Channel.Chunk<DataTable, DataRow, DataRow>(
+                        ChunkInitializer: static (channel) => new DataTable(),
+                        ConduitInitializer: (channel, dt) => {
+                            channel.Pipeline.Chanel<OtherConduit>((other) => { }, (other) => { });
+                            return dt.NewRow();
+                        },
+                        ChunkTransform: static (channel, dt, values) => {
+                            channel.Pipeline.Flush();
+                            return values;
+                        },
+                        ConduitOperation: (channel, dt, value) => {
 
-                yield return Channel.Chunk<DataTable, DataRow, DataRow>(
-                    ChunkInitializer: static (channel) => new DataTable(),
-                    ConduitInitializer: (channel, dt) => {
-                        channel.Pipeline.Chanel<OtherConduit>((other) => { }, (other) => { });
-                        return dt.NewRow();
-                    },
-                    ChunkTransform: static (channel, dt, values) => {
-                        channel.Pipeline.Flush();
-                        return values;
-                    },
-                    ConduitOperation: (channel, dt, value) => {
-
-                    }
-                );
+                        }
+                    );
+                }
             }
             IEnumerator IEnumerable.GetEnumerator() => (this as Pipeline.IConduit<MainConduit>).GetEnumerator();
             public int Id { get; private set; }
             public Pipeline.IChanel<MainConduit> Channel {get; private set;}
-            public void Initializer(int id, Pipeline.IChanel<MainConduit> channel){ Id = id; Channel = channel; }
+            public Exception Exception { get; private set; }
+            public void Initialize(int id, Pipeline.IChanel<MainConduit> channel, out Action<Exception> SetException){
+                Id = id; Channel = channel;
+                SetException = (ex) => Exception = ex;
+            }
         }
         private class OtherConduit : Pipeline.IConduit<OtherConduit> {
             public IEnumerator<OtherConduit> GetEnumerator() {
+                yield return this;
                 yield return Channel.Chunk<DataTable, DataRow, DataRow>(
                     ChunkInitializer: static (channel) => new DataTable(),
                     ConduitInitializer: (channel, dt) => {
@@ -110,7 +117,11 @@ namespace Driver {
             IEnumerator IEnumerable.GetEnumerator() => (this as Pipeline.IConduit<OtherConduit>).GetEnumerator();
             public int Id { get; private set; }
             public Pipeline.IChanel<OtherConduit> Channel { get; private set; }
-            public void Initializer(int id, Pipeline.IChanel<OtherConduit> channel) { Id = id; Channel = channel; }
+            public Exception Exception { get; private set; }
+            public void Initialize(int id, Pipeline.IChanel<OtherConduit> channel, out Action<Exception> SetException) {
+                Id = id; Channel = channel;
+                SetException = (ex) => Exception = ex;
+            }
         }
     }
 }

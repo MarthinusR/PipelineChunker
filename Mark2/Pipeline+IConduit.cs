@@ -7,8 +7,9 @@ namespace Mark2 {
         public interface IConduit<T> : IEnumerable<T> where T : IConduit<T> {
             int Id { get; }
             IChanel<T> Channel { get; }
+            Exception Exception { get; }
 
-            void Initializer(int id, IChanel<T> channel);
+            void Initialize(int Id, IChanel<T> Channel, out Action<Exception> SetException);
         }
     }
 }
