@@ -16,7 +16,7 @@ namespace Driver {
         public static void TheMain(string[] args) {
             Pipeline pipeline = new Pipeline(2);
             int sum = 0;
-            for (int i = 0; i < 10; i++) {
+            for (int i = 0; i < 3; i++) {
                 pipeline.Chanel<MainConduit>(
                         Initializer: (conduit) => conduit.Setup(3 + i, 5 + 2 * i),
                         Finalizer: (conduit) => {
@@ -25,7 +25,6 @@ namespace Driver {
                         }
                     );
             }
-
             for (int i = 0; i < 10; i++) {
                 pipeline.Chanel<OtherConduit>(
                     Initializer: (conduit) => {
@@ -94,15 +93,15 @@ namespace Driver {
                 yield return this;
                 yield return Channel.Chunk<DataTable, DataRow, DataRow>(
                     ChunkInitializer: static (channel) => new DataTable(),
-                    ConduitInitializer: (channel, dt) => {
-                        channel.Pipeline.Chanel<OtherConduit>((other) => { }, (other) => { });
+                    ConduitInitializer: (dt) => {
+                        //channel.Pipeline.Chanel<OtherConduit>((other) => { }, (other) => { });
                         return dt.NewRow();
                     },
                     ChunkTransform: static (channel, dt, values) => {
-                        channel.Pipeline.Flush();
+                        //channel.Pipeline.Flush();
                         return values;
                     },
-                    ConduitOperation: (channel, dt, value) => {
+                    ConduitOperation: (dt, value) => {
 
                     }
                 );
@@ -113,15 +112,15 @@ namespace Driver {
                 for (int i = 0; i < 3 - Id; i++) {
                     yield return Channel.Chunk<DataTable, DataRow, DataRow>(
                         ChunkInitializer: static (channel) => new DataTable(),
-                        ConduitInitializer: (channel, dt) => {
-                            channel.Pipeline.Chanel<OtherConduit>((other) => { }, (other) => { });
+                        ConduitInitializer: (dt) => {
+                            //channel.Pipeline.Chanel<OtherConduit>((other) => { }, (other) => { });
                             return dt.NewRow();
                         },
                         ChunkTransform: static (channel, dt, values) => {
-                            channel.Pipeline.Flush();
+                            //channel.Pipeline.Flush();
                             return values;
                         },
-                        ConduitOperation: (channel, dt, value) => {
+                        ConduitOperation: (dt, value) => {
 
                         }
                     );
@@ -141,14 +140,14 @@ namespace Driver {
                 yield return this;
                 yield return Channel.Chunk<DataTable, DataRow, DataRow>(
                     ChunkInitializer: static (channel) => new DataTable(),
-                    ConduitInitializer: (channel, dt) => {
-                        channel.Pipeline.Chanel<OtherConduit>((other) => { }, (other) => { });
+                    ConduitInitializer: (dt) => {
+                        //channel.Pipeline.Chanel<OtherConduit>((other) => { }, (other) => { });
                         return dt.NewRow();
                     },
                     ChunkTransform: static (channel, dt, values) => {
                         return values;
                     },
-                    ConduitOperation: (channel, dt, value) => {
+                    ConduitOperation: (dt, value) => {
 
                     }
                 );

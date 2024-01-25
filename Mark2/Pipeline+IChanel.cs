@@ -43,10 +43,11 @@ namespace Mark2 {
             /// <returns></returns>
             ConduitT Chunk<StaticT, InT, OutT>(
                 Func   <IChanel<ConduitT>, StaticT> ChunkInitializer,
-                Func   <IChanel<ConduitT>, StaticT, InT> ConduitInitializer,
+                Func   <StaticT, InT> ConduitInitializer,
                 Func   <IChanel<ConduitT>, StaticT, IEnumerable<KeyValuePair<ConduitT, InT>>, IEnumerable<KeyValuePair<ConduitT, OutT>>> ChunkTransform,
-                Action <IChanel<ConduitT>, StaticT, KeyValuePair<ConduitT, OutT>> ConduitOperation,
-                string Name = null);
+                Action <StaticT, KeyValuePair<ConduitT, OutT>> ConduitOperation,
+                string Name = null
+            ) where StaticT : new();
         }
     }
 }
