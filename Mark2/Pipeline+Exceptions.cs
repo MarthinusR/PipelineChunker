@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Reflection;
 using System.Text;
 
 namespace Mark2 {
@@ -9,6 +10,11 @@ namespace Mark2 {
         }
         public class ConduitIterationException : Exception {
             public ConduitIterationException(string message) : base(message) { }
+        }
+
+        public class MethodIsCapturingException<ConduitT> : Exception where ConduitT : IConduit<ConduitT> {
+            public MethodIsCapturingException(string additionalInfo, MethodInfo methodInfo) : 
+                base($"{typeof(ConduitT).FullName} is capturing variables{(string.IsNullOrEmpty(additionalInfo) ? "" : $" {additionalInfo}")}. [{methodInfo.Name}]") { }
         }
     }
 }

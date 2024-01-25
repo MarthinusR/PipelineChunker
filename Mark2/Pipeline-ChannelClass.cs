@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Reflection;
 using System.Text;
+using static Mark2.Pipeline;
 
 namespace Mark2 {
     public partial class Pipeline {
@@ -9,6 +11,8 @@ namespace Mark2 {
             public Pipeline Pipeline { get; private set; }
         }
         private class ChannelClass<ConduitT> : ChannelAbstract, IChanel<ConduitT> where ConduitT : IConduit<ConduitT>, new() {
+            // anonymous (or static) methods that do not capture values
+            private static readonly Dictionary<MethodInfo, bool> verifiedNonCapturingMethods = new Dictionary<MethodInfo, bool>();
             private readonly Pipeline _pipeline;
             private int total = 0;
             private readonly ConduitWrapper[] chunk;
@@ -30,10 +34,27 @@ namespace Mark2 {
                 Action<IChanel<ConduitT>, StaticT, KeyValuePair<ConduitT, OutT>> ConduitOperation,
                 string Name = null
             ) {
+                //Check if ChunkInitializer and ChunkTransform is static (or if they are not capturing variables)
+                //  because these methods will only be invoked on a per-chunk basis instead of for each conduit.
+                if (!IsMethodNoCapturing(ChunkInitializer.Method)) {
+                    throw new MethodIsCapturingException<ConduitT>("for the ChunkInitializer parameter", ChunkInitializer.Method);
+                }
+                if (!IsMethodNoCapturing(ChunkTransform.Method)) {
+                    throw new MethodIsCapturingException<ConduitT>("for the ChunkTransform parameter", ChunkTransform.Method);
+                }
+
                 this.Name = Name ?? typeof(ConduitT).FullName;
 
                 return chunk[channelingId].enumerator.Current;
                 //throw new NotImplementedException();
+            }
+
+            bool IsMethodNoCapturing(MethodInfo info) {
+                if (!verifiedNonCapturingMethods.TryGetValue(info, out bool value)) {
+                    return verifiedNonCapturingMethods[info] = info.IsStatic
+                                                               || info.DeclaringType.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic).Length == 0;
+                }
+                return verifiedNonCapturingMethods[info];
             }
 
             public void AddConduit(Action<ConduitT> channelInitializer, Action<ConduitT> channelFinalizer) {

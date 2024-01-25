@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Data;
 using System.Diagnostics;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using System.Threading.Channels;
 using System.Threading.Tasks;
@@ -46,12 +47,50 @@ namespace Driver {
             }
             pipeline.Flush();
         }
+        static void Other () => Debug.WriteLine($"Test Other");
+        delegate void TestMethod();
 
-        private class MainConduit : Pipeline.IConduit<MainConduit> {
+        class TestAttribute : Attribute { }
+        class Naughty { }
+        private class MainConduit :  Pipeline.IConduit<MainConduit> {
             public int A { get; private set; }
             public int B { get; private set; }
             public void Setup(int a, int b) { A = a; B = b; }
+
             public IEnumerator<MainConduit> GetEnumerator() {
+                //c.Target.GetType().GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+
+                TestMethod a = [Test] static () => {
+
+                    Debug.WriteLine($"Test");
+                };
+
+                int value = 1 + A;
+                int value2 = 2 + B;
+
+                TestMethod c = () => {
+                    int step = value + value2;
+                    for(int i = 0; i < 10; i++)
+                        Debug.WriteLine($"Test {value} {step}");
+                };
+                TestMethod b = Other;
+
+                var aInfo = a.GetMethodInfo();
+                var bInfo = b.GetMethodInfo();
+                var cInfo = c.GetMethodInfo();
+
+                var boolean = c.Target.GetType() == cInfo.DeclaringType;
+
+                //a.GetInvocationList
+
+                foreach(var thing in c.GetInvocationList()) {
+                    Debug.WriteLine(thing.Target);
+                }
+
+
+                //c.Method.Invoke(new Naughty(), null);
+
+
                 yield return this;
                 yield return Channel.Chunk<DataTable, DataRow, DataRow>(
                     ChunkInitializer: static (channel) => new DataTable(),
