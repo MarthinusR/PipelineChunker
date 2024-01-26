@@ -28,7 +28,8 @@ using static Mark2.Pipeline;
 
 namespace Mark2 {
     public partial class Pipeline {
-        public Pipeline(int maxChunkSize = 64) {
+        public Pipeline() : this(64) { }
+        public Pipeline(int maxChunkSize) {
             _maxChunkSize = maxChunkSize;
         }
         public void Chanel<ConduitT>(Action<ConduitT> Initializer, Action<ConduitT> Finalizer) where ConduitT : IConduit<ConduitT>, new(){
@@ -46,7 +47,9 @@ namespace Mark2 {
             (channel as ChannelClass<ConduitT>).AddConduit(Initializer, Finalizer);
         }
         public void Flush() {
-
+            foreach(var channel in _conduitTypeToChannelMap.Values) {
+                channel.Flush();
+            }
         }
     }
 }

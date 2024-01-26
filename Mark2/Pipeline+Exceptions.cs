@@ -20,5 +20,9 @@ namespace Mark2 {
             public InvalidChunkInvocation(string additionalInfo) :
                 base($"{typeof(ConduitT).FullName} is invoking Chunk incorrectly{(string.IsNullOrEmpty(additionalInfo) ? "" : $" {additionalInfo}")}.") { }
         }
+        public class ChunkOperationException<ConduitT> : Exception where ConduitT : IConduit<ConduitT> {
+            public ChunkOperationException(string additionalInfo, Exception ex) :
+                base($"{typeof(ConduitT).FullName}'s Chunk encountered an error{(string.IsNullOrEmpty(additionalInfo) ? "" : $" {additionalInfo}")}.", ex) { }
+        }
     }
 }

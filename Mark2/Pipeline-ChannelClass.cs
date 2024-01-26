@@ -11,6 +11,7 @@ namespace Mark2 {
         private abstract class ChannelAbstract {
             protected ChannelAbstract(Pipeline pipeline) { Pipeline = pipeline; }
             public Pipeline Pipeline { get; private set; }
+            public abstract void Flush();
         }
         private class ChannelClass<ConduitT> : ChannelAbstract, IChanel<ConduitT> where ConduitT : IConduit<ConduitT>, new() {
             /// <remarks>Anonymous (or static) methods that do not capture values</remarks>
@@ -51,23 +52,23 @@ namespace Mark2 {
             public ConduitT Chunk<StaticT, InT, OutT>(
                 Func<IChanel<ConduitT>, StaticT> ChunkInitializer,
                 Func<StaticT, InT> ConduitInitializer,
-                Func<IChanel<ConduitT>, StaticT, IEnumerable<KeyValuePair<ConduitT, InT>>, IEnumerable<KeyValuePair<ConduitT, OutT>>> ChunkTransform,
-                Action<StaticT, KeyValuePair<ConduitT, OutT>> ConduitOperation,
+                Func<IChanel<ConduitT>, StaticT, Pair<ConduitT, InT>[], Pair<ConduitT, OutT>[]> ChunkTransform,
+                Action<StaticT, Pair<ConduitT, OutT>> ConduitOperation,
                 string Name = null
-            ) where StaticT : new() {
+            ) {
                 var chunkKey = new KeyValuePair<MethodInfo, MethodInfo>(ChunkInitializer.Method, ChunkTransform.Method);
                 if (!_chunkMethodsToChunkMap.TryGetValue(chunkKey, out var chunk)) {
                     //Check if ChunkInitializer and ChunkTransform is static (or that they are not capturing variables)
                     //  because these methods will only be invoked on a per-chunk basis instead of for each conduit.
-                    if (!IsMethodNoCapturing(ChunkInitializer.Method)) {
-                        throw new MethodIsCapturingException<ConduitT>("for the ChunkInitializer parameter", ChunkInitializer.Method);
+                    if (!IsMethodNoCapturing(ChunkInitializer.Method, out string synopsisA)) {
+                        throw new MethodIsCapturingException<ConduitT>($"[{synopsisA}] in the anonymous method passed to the {nameof(ChunkInitializer)} parameter", ChunkInitializer.Method);
                     }
-                    if (!IsMethodNoCapturing(ChunkTransform.Method)) {
-                        throw new MethodIsCapturingException<ConduitT>("for the ChunkTransform parameter", ChunkTransform.Method);
+                    if (!IsMethodNoCapturing(ChunkTransform.Method, out string synopsisB)) {
+                        throw new MethodIsCapturingException<ConduitT>($"[{synopsisB}] in the anonymous method passed to the {nameof(ChunkTransform)} parameter", ChunkTransform.Method);
                     }
                     _chunkMethodsToChunkMap[chunkKey] = chunk = new ChunkStruct<StaticT, InT, OutT>(_pipeline, this, ChunkInitializer, ChunkTransform);
                 }
-                Debug.WriteLine($"Chunk - channelingId: {channelingId} [{this.GetHashCode()}]");
+                //Debug.WriteLine($"Chunk - channelingId: {channelingId} [{this.GetHashCode()}]");
                 if (wrapperArray[channelingId].currentChunk != null) {
                     throw new InvalidChunkInvocation<ConduitT>($"{(string.IsNullOrEmpty(Name) ? "" : $" with name '{Name}'")}. Only one invocation of Chunk occur per yield block");
                 }
@@ -81,10 +82,14 @@ namespace Mark2 {
                 return wrapperArray[channelingId].enumerator.Current;                
             }
 
-            bool IsMethodNoCapturing(MethodInfo info) {
+            bool IsMethodNoCapturing(MethodInfo info, out string synopsis) {
+                synopsis = null;
                 if (!_verifiedNonCapturingMethods.TryGetValue(info, out bool value)) {
-                    return _verifiedNonCapturingMethods[info] = info.IsStatic
+                    _verifiedNonCapturingMethods[info] = info.IsStatic
                                                                || info.DeclaringType.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic).Length == 0;
+                    if (!_verifiedNonCapturingMethods[info]) {
+                        synopsis = info.DeclaringType.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic).Skip(1).Select(x => $"{x.FieldType.FullName} {x.Name};" ).Aggregate((a, b) => a + b);
+                    }
                 }
                 return _verifiedNonCapturingMethods[info];
             }
@@ -113,22 +118,28 @@ namespace Mark2 {
                 total++;
             }
 
-            public void Flush() {
+            public override void Flush() {
                 bool isComplete = true;
                 do {
                     isComplete = true;
                     // for all step once
                     for (channelingId = 0; channelingId < total; channelingId++) {
-                        Debug.WriteLine($"Flush - channelingId: {channelingId} [{this.GetHashCode()}]");
+                        //Debug.WriteLine($"Flush - channelingId: {channelingId} [{this.GetHashCode()}]");
                         isComplete &= !wrapperArray[channelingId].enumerator.MoveNext();
-                        Debug.WriteLine($"Flush-MoveNext[done] - channelingId: {channelingId} [{this.GetHashCode()}]");
+                        //Debug.WriteLine($"Flush-MoveNext[done] - channelingId: {channelingId} [{this.GetHashCode()}]");
                     }
+                    if (isComplete)
+                        break;
                     // flush all the conduits by their chunk units (Note: chunk opts in for setting the wrappers current chunk to null.
                     foreach(var chunk in _chunkMethodsToChunkMap.Values) {
                         chunk.Flush(this, wrapperArray);
                     }
 
-                }while(!isComplete);
+                }while(true);
+                for (channelingId = 0; channelingId < total; channelingId++) {
+                    if(wrapperArray[channelingId].channelFinalizer != null)
+                        wrapperArray[channelingId].channelFinalizer(wrapperArray[channelingId].enumerator.Current);
+                }
                 Reset();
             }
 
@@ -155,7 +166,7 @@ namespace Mark2 {
             /// <typeparam name="StaticT"></typeparam>
             /// <typeparam name="InT"></typeparam>
             /// <typeparam name="OutT"></typeparam>
-            private class ChunkStruct<StaticT, InT, OutT> : IChunk where StaticT: new() {
+            private class ChunkStruct<StaticT, InT, OutT> : IChunk {
                 public int channelingId;
                 public int total;
                 Pipeline pipeline;
@@ -165,13 +176,13 @@ namespace Mark2 {
                 public bool CanChunkTransformBeNull => typeof(InT) == typeof(OutT);
                 public void AddSpaceForOne() => allocationSize++;
                 public Func<IChanel<ConduitT>, StaticT> chunkInitializer;
-                public Func<IChanel<ConduitT>, StaticT, IEnumerable<KeyValuePair<ConduitT, InT>>, IEnumerable<KeyValuePair<ConduitT, OutT>>> chunkTransform;
+                public Func<IChanel<ConduitT>, StaticT, Pair<ConduitT, InT>[], Pair<ConduitT, OutT>[]> chunkTransform;
 
                 public ChunkStruct(
                     Pipeline pipeline,
                     ChannelClass<ConduitT> channel,
                     Func<IChanel<ConduitT>, StaticT> ChunkInitializer,
-                    Func<IChanel<ConduitT>, StaticT, IEnumerable<KeyValuePair<ConduitT, InT>>, IEnumerable<KeyValuePair<ConduitT, OutT>>> ChunkTransform
+                    Func<IChanel<ConduitT>, StaticT, Pair<ConduitT, InT>[], Pair<ConduitT, OutT>[]> ChunkTransform
                 ) {
                     this.pipeline = pipeline;
                     this.channel = channel;
@@ -179,10 +190,10 @@ namespace Mark2 {
                     this.total = 0;
                     this.chunkInitializer = ChunkInitializer;
                     this.chunkTransform = ChunkTransform;
-                    this.data = new StaticT();
+                    this.data = ChunkInitializer(channel);
                 }
                 public void Flush(ChannelClass<ConduitT> channel, ConduitWrapper[] wrapperArray) {
-                    KeyValuePair<ConduitT, InT>[] inputArray = new KeyValuePair<ConduitT, InT>[allocationSize];
+                    Pair<ConduitT, InT>[] inputArray = new Pair<ConduitT, InT>[allocationSize];
                     var validInputWrapperIndices = new int[wrapperArray.Length];
                     int totalInputs = 0;
                     try {
@@ -198,7 +209,7 @@ namespace Mark2 {
                             }
                             var current = wrapper.enumerator.Current;
                             try {
-                                inputArray[totalInputs] = new KeyValuePair<ConduitT, InT>(current, ((Func<StaticT, InT>)wrapper.conduitInitializer)(data));
+                                inputArray[totalInputs] = new Pair<ConduitT, InT>(current, ((Func<StaticT, InT>)wrapper.conduitInitializer)(data));
                                 validInputWrapperIndices[totalInputs] = i;
                                 totalInputs++;
                             } catch (Exception ex) {
@@ -208,14 +219,24 @@ namespace Mark2 {
                                 }
                             }
                         }
-                        IEnumerable<KeyValuePair<ConduitT, OutT>> outputCollection;
+                        Pair<ConduitT, OutT>[] outputCollection;
                         // Transform the inputs
                         if (chunkTransform != null) {
                             // This is "static" so do not catch, should bubble up to the caller
                             outputCollection = chunkTransform(channel, data, inputArray);
+                            if(outputCollection == null) {
+                                throw new ChunkOperationException<ConduitT>(
+                                    $" when invoking {nameof(IChanel<ConduitT>.Chunk)}'s ChunkTransform parameter. The returned value cannot be null.",
+                                    new NullReferenceException());
+                            }
+                            if(outputCollection.Length != inputArray.Length) {
+                                throw new ChunkOperationException<ConduitT>(
+                                    $" when invoking {nameof(IChanel<ConduitT>.Chunk)}'s ChunkTransform parameter. The returned length of the collection must match the input length.",
+                                    new IndexOutOfRangeException());
+                            }
                         } else {
                             // NOTE: ChannelClass opts in cooperation that CanChunkTransformBeNull is satisfied.
-                            outputCollection = (IEnumerable<KeyValuePair<ConduitT, OutT>>)(object)inputArray;
+                            outputCollection = (Pair<ConduitT, OutT>[])(object)inputArray;
                         }
                         // Provide the operation with the transformed inputs
                         for (int inputOutputIndex = 0; inputOutputIndex < totalInputs; inputOutputIndex++) {
@@ -224,7 +245,7 @@ namespace Mark2 {
                             if (wrapper.conduitOperation == null)
                                 continue;
                             try {
-                                ((Action<StaticT, KeyValuePair<ConduitT, OutT>>)wrapperArray[index].conduitOperation)(data, outputCollection.ElementAt(inputOutputIndex));
+                                ((Action<StaticT, Pair<ConduitT, OutT>>)wrapperArray[index].conduitOperation)(data, outputCollection[inputOutputIndex]);
                             } catch (Exception ex) {
                                 wrapperArray[index].setException(ex);
                                 if (wrapperArray[index].enumerator.Current.Exception != ex) {
