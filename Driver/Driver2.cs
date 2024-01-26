@@ -57,40 +57,26 @@ namespace Driver {
             public void Setup(int a, int b) { A = a; B = b; }
 
             public IEnumerator<MainConduit> GetEnumerator() {
-                //c.Target.GetType().GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-
-                TestMethod a = [Test] static () => {
-
-                    Debug.WriteLine($"Test");
-                };
-
-                int value = 1 + A;
-                int value2 = 2 + B;
-
-                TestMethod c = () => {
-                    int step = value + value2;
-                    for(int i = 0; i < 10; i++)
-                        Debug.WriteLine($"Test {value} {step}");
-                };
-                TestMethod b = Other;
-
-                var aInfo = a.GetMethodInfo();
-                var bInfo = b.GetMethodInfo();
-                var cInfo = c.GetMethodInfo();
-
-                var boolean = c.Target.GetType() == cInfo.DeclaringType;
-
-                //a.GetInvocationList
-
-                foreach(var thing in c.GetInvocationList()) {
-                    Debug.WriteLine(thing.Target);
-                }
-
-
-                //c.Method.Invoke(new Naughty(), null);
-
 
                 yield return this;
+                yield return Channel.Chunk<bool, int, int>(
+                    ChunkInitializer: static (channel) => true,
+                    ConduitInitializer: (dt) => {
+                        //channel.Pipeline.Chanel<OtherConduit>((other) => { }, (other) => { });
+                        return A + B;
+                    },
+                    ChunkTransform: static (channel, dt, valuesEnumerator) => {
+                        var values = (KeyValuePair<MainConduit, int>[])valuesEnumerator;
+                        int sum = 0;
+                        for(int i = 0; i < values.Count(); i++) {
+                            sum += values[i].Value;
+                            values[i] = new KeyValuePair<MainConduit, int>(values[i].Key, sum);
+                        }
+                        return values;
+                    },
+                    ConduitOperation: (dt, pair) => {
+                        Debug.WriteLine($"Sum for all is: {pair.Value}. [{A}] [{B}]");
+                    });
                 yield return Channel.Chunk<DataTable, DataRow, DataRow>(
                     ChunkInitializer: static (channel) => new DataTable(),
                     ConduitInitializer: (dt) => {
@@ -103,33 +89,12 @@ namespace Driver {
                     },
                     ConduitOperation: (dt, value) => {
 
-                    }
-                );
-
-
-                //Channel.Pipeline.Flush(); // <--- What does this mean? <-- Should throw error correct?
-
-                for (int i = 0; i < 3 - Id; i++) {
-                    yield return Channel.Chunk<DataTable, DataRow, DataRow>(
-                        ChunkInitializer: static (channel) => new DataTable(),
-                        ConduitInitializer: (dt) => {
-                            //channel.Pipeline.Chanel<OtherConduit>((other) => { }, (other) => { });
-                            return dt.NewRow();
-                        },
-                        ChunkTransform: static (channel, dt, values) => {
-                            //channel.Pipeline.Flush();
-                            return values;
-                        },
-                        ConduitOperation: (dt, value) => {
-
-                        }
-                    );
-                }
+                    });
             }
             IEnumerator IEnumerable.GetEnumerator() => (this as Pipeline.IConduit<MainConduit>).GetEnumerator();
             public int Id { get; private set; }
-            public Pipeline.IChanel<MainConduit> Channel {get; private set;}
-            public Exception Exception { get; private set; }
+            public Pipeline.IChanel<MainConduit>? Channel {get; private set;}
+            public Exception? Exception { get; private set; }
             public void Initialize(int id, Pipeline.IChanel<MainConduit> channel, out Action<Exception> SetException){
                 Id = id; Channel = channel;
                 SetException = (ex) => Exception = ex;
@@ -149,13 +114,12 @@ namespace Driver {
                     },
                     ConduitOperation: (dt, value) => {
 
-                    }
-                );
+                    });
             }
             IEnumerator IEnumerable.GetEnumerator() => (this as Pipeline.IConduit<OtherConduit>).GetEnumerator();
             public int Id { get; private set; }
-            public Pipeline.IChanel<OtherConduit> Channel { get; private set; }
-            public Exception Exception { get; private set; }
+            public Pipeline.IChanel<OtherConduit>? Channel { get; private set; }
+            public Exception? Exception { get; private set; }
             public void Initialize(int id, Pipeline.IChanel<OtherConduit> channel, out Action<Exception> SetException) {
                 Id = id; Channel = channel;
                 SetException = (ex) => Exception = ex;

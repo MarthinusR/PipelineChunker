@@ -57,7 +57,6 @@ namespace Driver {
             }
         }
         public static DataSet ExecFlattenedStoreProcAsDataSetBatcher(SqlCommand cmd, string storeProc, DataTable parameterTable) {
-            DataSet dataSet;
             if (!IsInitExecFlattenedStoreProcAsDataSetBatcher) {
                 IsInitExecFlattenedStoreProcAsDataSetBatcher = true;
                 cmd.CommandText = $"""                        

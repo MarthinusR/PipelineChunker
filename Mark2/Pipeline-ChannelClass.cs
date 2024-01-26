@@ -104,7 +104,8 @@ namespace Mark2 {
                 channelInitializer?.Invoke(conduit);
                 wrapperArray[total].enumerator = conduit.GetEnumerator();
                 wrapperArray[total].enumerator.MoveNext();
-                if (wrapperArray[total].enumerator.Current == null) {
+
+                if (((object)wrapperArray[total].enumerator.Current) != ((object)conduit)) {
                     throw new ConduitIterationException($"{conduitType.FullName} must yield 'this' on the first iteration");
                 }
                 wrapperArray[total].channelFinalizer = channelFinalizer;
@@ -231,10 +232,10 @@ namespace Mark2 {
                                 }
                             }
                         }
-                    }catch (Exception ex) {
+                    }catch {
                         throw;
                     } finally {
-                        // for all applicable conduits unset this chunk
+                        // Set the current chunk to null for all applicable conduits
                         for(int i = 0; i < wrapperArray.Length; i++) {
                             if (wrapperArray[i].currentChunk != this)
                                 continue;
