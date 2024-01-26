@@ -101,10 +101,9 @@ namespace Mark2 {
                 wrapperArray[total] = new ConduitWrapper();
 
                 ConduitT conduit = new ConduitT();
-                conduit.Initialize(total, this, out var setException);
-                if(conduit.Id != total) throw new ConduitInitializationException($"{conduitType.FullName} must assign the id provided in {nameof(IConduit<ConduitT>.Initialize)}");
-                if(conduit.Channel != this) throw new ConduitInitializationException($"{conduitType.FullName} must assign the id channel in {nameof(IConduit<ConduitT>.Initialize)}");
-
+                conduit.Initialize(this, out var setException);
+                if(conduit.Channel != this) throw new ConduitInitializationException($"{conduitType.FullName} must assign the channel in {nameof(IConduit<ConduitT>.Initialize)}");
+                if(setException == null) throw new ConduitInitializationException($"{conduitType.FullName} must assign the setException action in {nameof(IConduit<ConduitT>.Initialize)}");
 
                 channelInitializer?.Invoke(conduit);
                 wrapperArray[total].enumerator = conduit.GetEnumerator();

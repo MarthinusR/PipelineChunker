@@ -22,7 +22,7 @@ namespace Driver {
                         Initializer: (conduit) => conduit.Setup(3 + i, 5 + 2 * i),
                         Finalizer: (conduit) => {
                             sum += i;
-                            Debug.WriteLine($"{conduit.Id} A: {conduit.A} {conduit.B}");
+                            Debug.WriteLine($"{conduit.ConduitId} A: {conduit.A} {conduit.B}");
                         }
                     );
             }
@@ -43,7 +43,7 @@ namespace Driver {
                         Initializer: (conduit) => conduit.Setup(3 - i, 5 + 2 * i),
                         Finalizer: (conduit) => {
                             sum += i;
-                            Debug.WriteLine($"{conduit.Id} A: {conduit.A} {conduit.B}");
+                            Debug.WriteLine($"{conduit.ConduitId} A: {conduit.A} {conduit.B}");
                         }
                     );
             }
@@ -54,6 +54,8 @@ namespace Driver {
         class TestAttribute : Attribute { }
         class Naughty { }
         private class MainConduit :  Pipeline.IConduit<MainConduit> {
+            static int IdCounter = 0;
+            public int ConduitId { get; private set; } = IdCounter++;
             public int A { get; private set; }
             public int B { get; private set; }
             int term;
@@ -61,7 +63,7 @@ namespace Driver {
             public void Setup(int a, int b) { A = a; B = b; }
 
             public IEnumerator<MainConduit> GetEnumerator() {
-                Debug.WriteLine($"MainConduit[{Id}] - Start A:{A}, B:{B}");
+                Debug.WriteLine($"MainConduit[{ConduitId}] - Start A:{A}, B:{B}");
                 yield return this;
                 yield return Channel.Chunk<Pipeline, int, int>(
                     ChunkInitializer: static (channel) => new Pipeline(4),
@@ -71,7 +73,7 @@ namespace Driver {
                         (conduit) => {
                             bool check = conduit.Sum == 2 * (1 + A * 2 + B * 4);
                             Debug.WriteLine("term = 2 * (1 + OtherA + OtherB) = 2 * (1 + A * 2 + B * 4)");
-                            Debug.WriteLine($"1[{check}] MainConduit[{Id}] - OtherConduit[{conduit.Id}] - Finalizer OtherA:{conduit.OtherA}, OtherB:{conduit.OtherB}, term:{conduit.Sum}");
+                            Debug.WriteLine($"1[{check}] MainConduit[{ConduitId}] - OtherConduit[{conduit.ConduitId}] - Finalizer OtherA:{conduit.OtherA}, OtherB:{conduit.OtherB}, term:{conduit.Sum}");
                             
                             term = conduit.Sum; // <-- conduit.Sum = 2 * (1 + OtherA + OtherB) = 2 * (1 + A * 2 + B * 4)
                         });
@@ -85,53 +87,53 @@ namespace Driver {
                             //bool check = term == 2 * (1 + A * 2 + B * 4);
                             values[i].Value = value * 10; // <-- 10 * 2 * (1 + OtherA + OtherB) = 2 * (1 + A * 2 + B * 4)
                             Debug.WriteLine("term = 2 * (1 + OtherA + OtherB) = 2 * (1 + A * 2 + B * 4)");
-                            Debug.WriteLine($"[  ?  ] MainConduit[{values[i].Conduit.Id}] - ChunkTransform term:{value}");
+                            Debug.WriteLine($"[  ?  ] MainConduit[{values[i].Conduit.ConduitId}] - ChunkTransform term:{value}");
                         }
                         return values;
                     },
                     ConduitOperation: (dt, pair) => {
                         termTimes10 = pair.Value;
                         bool check = pair.Value == 10 * term;
-                        Debug.WriteLine($"2[{check}] MainConduit[{Id}] - ChunkTransform term:{pair.Value}");
+                        Debug.WriteLine($"2[{check}] MainConduit[{ConduitId}] - ChunkTransform term:{pair.Value}");
                     });
-                Debug.WriteLine($"MainConduit[{Id}] - Post Chunk A:{A}, B:{B}, term:{term}, termTimes10:{termTimes10}");
+                Debug.WriteLine($"MainConduit[{ConduitId}] - Post Chunk A:{A}, B:{B}, term:{term}, termTimes10:{termTimes10}");
             }
             IEnumerator IEnumerable.GetEnumerator() => (this as Pipeline.IConduit<MainConduit>).GetEnumerator();
-            public int Id { get; private set; }
             public Pipeline.IChanel<MainConduit>? Channel {get; private set;}
             public Exception? Exception { get; private set; }
-            public void Initialize(int id, Pipeline.IChanel<MainConduit> channel, out Action<Exception> SetException){
-                Id = id; Channel = channel;
+            public void Initialize(Pipeline.IChanel<MainConduit> channel, out Action<Exception> SetException){
+                Channel = channel;
                 SetException = (ex) => Exception = ex;
             }
         }
         private class OtherConduit : Pipeline.IConduit<OtherConduit> {
+            static int IdCounter = 0;
+            public int ConduitId {get; private set;}= IdCounter++;
             public IEnumerator<OtherConduit> GetEnumerator() {
                 yield return this;
                 yield return Channel.Chunk<int, int, int>(
                     ChunkInitializer: static (channel) => 1,
                     ConduitInitializer: (start) => {
-                        Debug.WriteLine($"OtherConduit[{Id}] - ConduitInitializer  start:{start}, OtherA:{OtherA}, OtherB:{OtherB}");
+                        Debug.WriteLine($"OtherConduit[{ConduitId}] - ConduitInitializer  start:{start}, OtherA:{OtherA}, OtherB:{OtherB}");
                         return start + OtherA + OtherB;
                     },
                     ChunkTransform: static (channel, start, values) => {
                         for (int i = 0; i < values.Length; i++) {
-                            Debug.WriteLine($"OtherConduit[{values[i].Conduit.Id}] - ConduitInitializer  start:{start}, OtherA:{values[i].Conduit.OtherA}, OtherB:{values[i].Conduit.OtherB}, value:{values[i].Value}");
+                            Debug.WriteLine($"OtherConduit[{values[i].Conduit.ConduitId}] - ConduitInitializer  start:{start}, OtherA:{values[i].Conduit.OtherA}, OtherB:{values[i].Conduit.OtherB}, value:{values[i].Value}");
                             values[i].Value *= 2;
                         }
                         return values;
                     },
                     ConduitOperation: (start, pair) => {
-                        Debug.WriteLine($"OtherConduit[{pair.Conduit.Id}] - ConduitInitializer  start:{start}, Sum = value * 2:{pair.Value}");
+                        Debug.WriteLine($"OtherConduit[{pair.Conduit.ConduitId}] - ConduitInitializer  start:{start}, Sum = value * 2:{pair.Value}");
                         Sum = pair.Value; // Sum = 2 * (1 + OtherA + OtherB);
                     });
             }
             IEnumerator IEnumerable.GetEnumerator() => (this as Pipeline.IConduit<OtherConduit>).GetEnumerator();
-            public int Id { get; private set; }
             public Pipeline.IChanel<OtherConduit>? Channel { get; private set; }
             public Exception? Exception { get; private set; }
-            public void Initialize(int id, Pipeline.IChanel<OtherConduit> channel, out Action<Exception> SetException) {
-                Id = id; Channel = channel;
+            public void Initialize(Pipeline.IChanel<OtherConduit> channel, out Action<Exception> SetException) {
+                Channel = channel;
                 SetException = (ex) => Exception = ex;
             }
             public int Sum { get; private set; }
