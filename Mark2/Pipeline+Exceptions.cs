@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using System.Text;
 using static Mark2.Pipeline;
@@ -8,6 +9,15 @@ namespace Mark2 {
     public partial class Pipeline {
         public class ConduitIterationException : Exception {
             public ConduitIterationException(string message) : base(message) { }
+        }
+        public class CompoundException<ConduitT> : Exception where ConduitT : Conduit<ConduitT>, new() {
+            public CompoundException() { }
+            public void Add(ConduitT conduit, Exception exception) {
+                errorList.Add(new KeyValuePair<ConduitT, Exception>(conduit, exception));
+            }
+            public List<KeyValuePair<ConduitT, Exception>> errorList = new List<KeyValuePair<ConduitT, Exception>>();
+            public override string Message => string.Join(Environment.NewLine, errorList.Select(x => $"Conduit of value [{x.Key}] threw an unhandled exception:{Environment.NewLine}  {x.Value.Message.Replace(Environment.NewLine, $"{Environment.NewLine}  ")}"));
+            public override string ToString() => $"{string.Join(Environment.NewLine, errorList.Select(x => $"Conduit of value [{x.Key}] threw an unhandled exception:{Environment.NewLine}{x.Value.ToString().Replace(Environment.NewLine, ($"{Environment.NewLine}  "))}{Environment.NewLine}{base.StackTrace}"))}";
         }
         public class MethodIsCapturingException<ConduitT> : Exception where ConduitT : Conduit<ConduitT>, new() {
             public MethodIsCapturingException(string additionalInfo, MethodInfo methodInfo) :

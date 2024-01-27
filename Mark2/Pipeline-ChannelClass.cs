@@ -21,7 +21,14 @@ namespace Mark2 {
             /// <remarks>Captures <c>public ConduitT Chunk</c>'s <c>ChunkInitializer</c> and <c>ChunkTransform</c> values in the key value pair ands maps it to wrappers</remarks>
             private readonly Dictionary<KeyValuePair<MethodInfo, MethodInfo>, IChunk> _chunkMethodsToChunkMap = new Dictionary<KeyValuePair<MethodInfo, MethodInfo>, IChunk>();
             private static readonly Type conduitType = typeof(ConduitT);
-            ConduitWrapper[] wrapperArray;
+            /// <summary>
+            /// Stores pristine and error wrappers to tht left and right respectfully.
+            /// </summary>
+            /// <remarks>
+            /// [pristine1, pristine2, pristine3, empty, empty, error3, error2, error1]
+            /// </remarks>
+            ConduitWrapper[] wrapperPristineAndErrorArray;
+            int errorCount = 0;
             ExceptionCommunicator communicator = new ExceptionCommunicator();
 
             private static int _IdCounter = 0;
@@ -60,16 +67,16 @@ namespace Mark2 {
                     _chunkMethodsToChunkMap[chunkKey] = chunk = new ChunkHandler<StaticT, InT, OutT>(_pipeline, this, ChunkInitializer, ChunkTransform);
                 }
                 int channelingId = conduit.ConduitId;
-                if (wrapperArray[channelingId].currentChunk != null) {
+                if (wrapperPristineAndErrorArray[channelingId].currentChunk != null) {
                     throw new InvalidChunkInvocation<ConduitT>($"{(string.IsNullOrEmpty(Name) ? "" : $" with name '{Name}'")}. Only one invocation of Chunk occur per yield block");
                 }
                 if(ChunkTransform == null && !chunk.CanChunkTransformBeNull) {
                     throw new InvalidChunkInvocation<ConduitT>($"{(string.IsNullOrEmpty(Name) ? "" : $" with name '{Name}'")}. ChunkTransform cannot be null if InT and OutT generic parameters are not of the same type");
                 }
                 chunk.AddSpaceForOne();
-                wrapperArray[channelingId].conduitInitializer = ConduitInitializer;
-                wrapperArray[channelingId].conduitOperation = ConduitOperation;
-                wrapperArray[channelingId].currentChunk = chunk;         
+                wrapperPristineAndErrorArray[channelingId].conduitInitializer = ConduitInitializer;
+                wrapperPristineAndErrorArray[channelingId].conduitOperation = ConduitOperation;
+                wrapperPristineAndErrorArray[channelingId].currentChunk = chunk;         
             }
 
             bool IsMethodNoCapturing(MethodInfo info, out string synopsis) {
@@ -95,58 +102,91 @@ namespace Mark2 {
                 ChannelInitializer?.Invoke(conduit);
 
                 // Lazy allocation
-                if (wrapperArray == null)
-                    wrapperArray = new ConduitWrapper[Pipeline._maxChunkSize];
+                if (wrapperPristineAndErrorArray == null)
+                    wrapperPristineAndErrorArray = new ConduitWrapper[Pipeline._maxChunkSize];
 
-                wrapperArray[total] = new ConduitWrapper();
-                wrapperArray[total].enumerator = (IEnumerator<ConduitT>)conduit.GetEnumerator();
-                wrapperArray[total].enumerator.MoveNext();
+                wrapperPristineAndErrorArray[total] = new ConduitWrapper();
+                wrapperPristineAndErrorArray[total].enumerator = (IEnumerator<ConduitT>)conduit.GetEnumerator();
+                wrapperPristineAndErrorArray[total].enumerator.MoveNext();
 
-                if (((object)wrapperArray[total].enumerator.Current) != ((object)conduit)) {
+                if (((object)wrapperPristineAndErrorArray[total].enumerator.Current) != ((object)conduit)) {
                     throw new ConduitIterationException($"{conduitType.FullName} must yield 'this' on the first iteration");
                 }
-                wrapperArray[total].channelFinalizer = ChannelFinalizer;
+                wrapperPristineAndErrorArray[total].channelFinalizer = ChannelFinalizer;
                 total++;
             }
 
             public override void Flush() {
-                bool isComplete = true;
-                do {
-                    isComplete = true;
-                    // flush all the conduits' chunk units (Note: chunk opts in for setting the wrappers current chunk to null.
-                    foreach (var chunk in _chunkMethodsToChunkMap.Values) {
-                        chunk.Flush(this, wrapperArray, communicator);
-                    }
-                    // for all step once
-                    for (int channelingId = 0; channelingId < total; channelingId++) {
-                        try {
-                            isComplete &= !wrapperArray[channelingId].enumerator.MoveNext();
-                        } catch (Exception ex) {
-                            isComplete &= true;
-                            wrapperArray[channelingId].Exception = ex;
+                try {
+                    bool isComplete = true;
+                    do {
+                        isComplete = true;
+                        // flush all the conduits' chunk units (Note: chunk opts in for setting the wrappers current chunk to null.
+                        foreach (var chunk in _chunkMethodsToChunkMap.Values) {
+                            chunk.Flush(this, wrapperPristineAndErrorArray, communicator);
                         }
-                    }
-                    if (isComplete)
-                        break;
+                        // for all step once
+                        for (int channelingId = 0; channelingId < total; channelingId++) {
+                            try {
+                                isComplete &= !wrapperPristineAndErrorArray[channelingId].enumerator.MoveNext();
+                            } catch (Exception ex) {
+                                isComplete &= true;
+                                wrapperPristineAndErrorArray[channelingId].Exception = ex;
+                            }
+                        }
+                        if (isComplete)
+                            break;
 
-                }while(true);
-                for (int channelingId = 0; channelingId < total; channelingId++) {
-                    if (wrapperArray[channelingId].channelFinalizer != null) {
-                        communicator.ExceptionHandled = false;
-                        Exception exception = wrapperArray[channelingId].Exception;
-                        wrapperArray[channelingId].channelFinalizer(wrapperArray[channelingId].enumerator.Current, exception, communicator);
-                        if(exception != null && !communicator.ExceptionHandled) {
-                            throw exception;
+                    } while (true);
+
+                    void MoveWrapperToErrorLocation(int id) {
+                        total--;
+                        errorCount++;
+                        int errorIndex = wrapperPristineAndErrorArray.Length - errorCount;
+                        if (total >= errorIndex) {
+                            // we must swap, as there is overlap
+                            ConduitWrapper temp = wrapperPristineAndErrorArray[errorIndex];
+                            wrapperPristineAndErrorArray[errorIndex] = wrapperPristineAndErrorArray[id];
+                            wrapperPristineAndErrorArray[id] = temp;
+                        } else {
+                            // no need for swap, as the space is unused.
+                            wrapperPristineAndErrorArray[errorIndex] = wrapperPristineAndErrorArray[id];
+                            // swap the pristine section's tail into this location
+                            if (id < total) {
+                                wrapperPristineAndErrorArray[id] = wrapperPristineAndErrorArray[total];
+                            }
                         }
-                    } else if (wrapperArray[channelingId].Exception != null) {
-                        throw wrapperArray[channelingId].Exception;
                     }
+
+                    for (int channelingId = 0; channelingId < total; channelingId++) {
+                        if (wrapperPristineAndErrorArray[channelingId].channelFinalizer != null) {
+                            communicator.ExceptionHandled = false;
+                            Exception exception = wrapperPristineAndErrorArray[channelingId].Exception;
+                            wrapperPristineAndErrorArray[channelingId].channelFinalizer(wrapperPristineAndErrorArray[channelingId].enumerator.Current, exception, communicator);
+                            if (exception != null && !communicator.ExceptionHandled) {
+                                MoveWrapperToErrorLocation(channelingId);
+                            }
+                        } else if (wrapperPristineAndErrorArray[channelingId].Exception != null) {
+                            MoveWrapperToErrorLocation(channelingId);
+                        }
+                    }
+                    if (errorCount > 0) {
+                        // now compound all the error wrappers and throw
+                        CompoundException<ConduitT> compound = new CompoundException<ConduitT>();
+                        for (int i = wrapperPristineAndErrorArray.Length - 1; i >= wrapperPristineAndErrorArray.Length - errorCount; i--) {
+                            var wrapper = wrapperPristineAndErrorArray[i];
+                            compound.Add(wrapper.enumerator.Current, wrapper.Exception);
+                        }
+                        throw compound;
+                    }
+                } finally {
+                    Reset();
                 }
-                Reset();
             }
 
             private void Reset() {
                 total = 0;
+                errorCount = 0;
             }
             private class ConduitWrapper {
                 public IEnumerator<ConduitT> enumerator;
@@ -195,30 +235,32 @@ namespace Mark2 {
                     this.data = ChunkInitializer(channel);
                 }
                 public void Flush(ChannelClass<ConduitT> channel, ConduitWrapper[] wrapperArray, ExceptionCommunicator communicator) {
+                    if (allocationSize == 0)
+                        return;
                     Item<ConduitT, InT>[] inputArray = new Item<ConduitT, InT>[allocationSize];
                     var validInputWrapperIndices = new int[wrapperArray.Length];
-                    int totalInputs = 0;
+                    int totalPristine = 0;
+                    int totalFail = 0;
                     try {
                         // Load all the inputs
-                        for (int i = 0; totalInputs < allocationSize && i < wrapperArray.Length; i++) {
+                        for (int i = 0; totalPristine < allocationSize && i < wrapperArray.Length; i++) {
                             var wrapper = wrapperArray[i];
                             // where this chunk is relevant
                             if (wrapper.currentChunk != this)
                                 continue;
                             if (wrapper.conduitInitializer == null) {
                                 // will be using the default value of the InT type
-                                totalInputs++;
+                                totalPristine++;
                             }
                             var current = wrapper.enumerator.Current;
                             try {
-                                inputArray[totalInputs] = new Item<ConduitT, InT>(current, wrapper.Exception, ((ChunkType<ConduitT, StaticT, InT, OutT>.ConduitInitializer)wrapper.conduitInitializer)(data));
-                                validInputWrapperIndices[totalInputs] = i;
-                                totalInputs++;
+                                inputArray[totalPristine] = new Item<ConduitT, InT>(current, wrapper.Exception, ((ChunkType<ConduitT, StaticT, InT, OutT>.ConduitInitializer)wrapper.conduitInitializer)(data));
+                                validInputWrapperIndices[totalPristine] = i;
+                                totalPristine++;
                             } catch (Exception ex) {
-                                wrapper.Exception = inputArray[totalInputs].Exception = ex;
-                                //inputArray[totalInputs] = new Item<ConduitT, InT>(current, wrapper.Exception, default);
-                                //validInputWrapperIndices[totalInputs] = i;
-                                //totalInputs++;
+                                totalFail++;
+                                wrapper.Exception = ex;
+                                inputArray[inputArray.Length - totalFail] = new Item<ConduitT, InT>(current, wrapper.Exception, default);
                             }
                         }
                         Item<ConduitT, OutT>[] outputCollection;
@@ -226,7 +268,7 @@ namespace Mark2 {
                         if (chunkTransform != null) {
                             // This is "static" so do not catch, should bubble up to the caller
                             //outputCollection = chunkTransform(channel, data, inputArray, totalInputs);
-                            outputCollection = chunkTransform(channel, data, inputArray);
+                            outputCollection = chunkTransform(channel, data, inputArray, totalPristine);
                             if(outputCollection == null) {
                                 throw new ChunkOperationException<ConduitT>(
                                     $" when invoking {nameof(Conduit<ConduitT>)}.Chunk's {nameof(ChunkType<ConduitT, StaticT, InT, OutT>.ChunkTransform)} parameter. The returned value cannot be null.",
@@ -242,13 +284,13 @@ namespace Mark2 {
                             outputCollection = (Item<ConduitT, OutT>[])(object)inputArray;
                         }
                         // Provide the operation with the transformed inputs
-                        for (int inputOutputIndex = 0; inputOutputIndex < totalInputs; inputOutputIndex++) {
+                        for (int inputOutputIndex = 0; inputOutputIndex < totalPristine; inputOutputIndex++) {
                             int index = validInputWrapperIndices[inputOutputIndex];
                             var wrapper = wrapperArray[index];
                             if (wrapper.conduitOperation == null)
                                 continue;
                             try {
-                                ((ChunkType<ConduitT, StaticT, InT, OutT>.ConduitOperation)wrapper.conduitOperation)(data, outputCollection[inputOutputIndex], communicator);
+                                ((ChunkType<ConduitT, StaticT, InT, OutT>.ConduitOperation)wrapper.conduitOperation)(data, outputCollection[inputOutputIndex], wrapper.Exception, communicator);
                                 if(wrapper.Exception != null && !communicator.ExceptionHandled) {
                                     throw wrapper.Exception;
                                 }

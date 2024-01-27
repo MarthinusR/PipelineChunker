@@ -55,7 +55,7 @@ namespace Mark2 {
                 }
             }
 #if DEBUG
-            Debug.WriteLine($"Pipeline.Chanel<{nameof(conduitType.FullName)}> cache [hit: {cacheHit}, miss: {cacheMiss}]");
+            Debug.WriteLine($"Pipeline.Chanel<{conduitType.FullName}> cache [hit: {cacheHit}, miss: {cacheMiss}]");
 #endif
             _lastChannelConduitType = conduitType;
             _lastChannel = channel;
