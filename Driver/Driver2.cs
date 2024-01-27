@@ -9,15 +9,15 @@ using System.Text;
 using System.Threading.Channels;
 using System.Threading.Tasks;
 using Azure;
-using Mark2;
-using static Mark2.Pipeline;
+using PipelineChunker;
+using static PipelineChunker.Pipeline;
 
 namespace Driver {
     internal class Driver2 {
         public static void TheMain(string[] args) {
             Pipeline pipeline = new Pipeline(7);
             int sum = 0;
-            for (int i = 0; i < 13; i++) {
+            for (int i = 0; i < 1024; i++) {
                 try {
                     pipeline.Chanel<MainConduit>(
                             Initializer: (conduit) => conduit.Setup(3 + i, 5 + 2 * i),
@@ -72,8 +72,7 @@ namespace Driver {
 
             public override IEnumerator<MainConduit> GetEnumerator() {
                 Debug.WriteLine($"MainConduit[{ConduitId}] - Start A:{A}, B:{B}");
-                try {
-                    Chunk<Pipeline, int, int>(
+                yield return Chunk<Pipeline, int, int>(
                     ChunkInitializer: static (channel) => new Pipeline(5),
                     ConduitInitializer: (pipeline) => {
                         try {
@@ -126,9 +125,6 @@ namespace Driver {
                         Debug.WriteLine($"2[{check}] MainConduit[{ConduitId}] - ChunkTransform term:{pair.Value}");
                     });
                     Debug.WriteLine($"MainConduit[{ConduitId}] - Post Chunk A:{A}, B:{B}, term:{term}, termTimes10:{termTimes10}");
-                } catch (Exception e){
-                    Debug.WriteLine($"{typeof(MainConduit).FullName} Caught exception-5:{Environment.NewLine}{e}");
-                }
                 yield return this;
             }
         }
