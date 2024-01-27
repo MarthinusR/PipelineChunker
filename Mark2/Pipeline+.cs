@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Diagnostics;
 using System.Text;
 using static Mark2.Pipeline;
 //  
@@ -28,20 +29,34 @@ using static Mark2.Pipeline;
 
 namespace Mark2 {
     public partial class Pipeline {
+#if DEBUG
+        static int cacheHit = 0;
+        static int cacheMiss = 0;
+#endif
         public Pipeline() : this(64) { }
         public Pipeline(int maxChunkSize) {
             _maxChunkSize = maxChunkSize;
         }
-        public void Chanel<ConduitT>(Action<ConduitT> Initializer, Action<ConduitT> Finalizer) where ConduitT : IConduit<ConduitT>, new(){
+        public void Chanel<ConduitT>(Action<ConduitT> Initializer, Action<ConduitT, Exception, ExceptionCommunicator> Finalizer) where ConduitT : Conduit<ConduitT>, new(){
             Type conduitType = typeof(ConduitT);
             ChannelAbstract channel;
+            // use one level of cashing to avoid potential dictionary lookup
             if (_lastChannelConduitType == conduitType) {
+#if DEBUG
+                cacheHit++;
+#endif
                 channel = _lastChannel;
             } else {
+#if DEBUG
+                cacheMiss++;
+#endif
                 if (!_conduitTypeToChannelMap.TryGetValue(conduitType, out channel)) {
                     _conduitTypeToChannelMap[conduitType] = channel = new ChannelClass<ConduitT>(this);
                 }
             }
+#if DEBUG
+            Debug.WriteLine($"Pipeline.Chanel<{nameof(conduitType.FullName)}> cache [hit: {cacheHit}, miss: {cacheMiss}]");
+#endif
             _lastChannelConduitType = conduitType;
             _lastChannel = channel;
             (channel as ChannelClass<ConduitT>).AddConduit(Initializer, Finalizer);

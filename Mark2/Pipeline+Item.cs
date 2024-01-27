@@ -4,12 +4,15 @@ using System.Text;
 
 namespace Mark2 {
     public partial class Pipeline {
-        public struct Pair<ConduitT, T> where ConduitT : IConduit<ConduitT> {
+        public struct Item<ConduitT, T> where ConduitT : Conduit<ConduitT>, new() {
             public readonly ConduitT Conduit;
+            public Exception Exception;
             public T Value;
 
-            public Pair(ConduitT conduit, T value) {
+
+            public Item(ConduitT conduit, Exception exception, T value) {
                 Conduit = conduit;
+                Exception = exception;
                 Value = value;
             }
         }
